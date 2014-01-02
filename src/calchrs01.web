@@ -1605,7 +1605,7 @@ Added this section.
                                  << (iter->day - iter->day_of_week + i) 
                                  << "." << iter->month 
                                  << "." << temp_strm.str().substr(2) 
-                                 << "&\\omit \\quad " << free_day_str << "\\hfil&\\cr"
+                                 << "&\\multispan{2}{\\quad " << free_day_str << "\\hfil}\\cr"
                                  << endl;
 
                    }   
