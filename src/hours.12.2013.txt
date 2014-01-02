@@ -1,0 +1,25 @@
+#### hours.12.2013.txt
+#### Created by Laurence D. Finston (LDF) Tue Nov  5 10:42:43 CET 2013
+
+#### Sample input file
+
+#### date +%V  #### ISO week number, with Monday as first day of week (01..53)
+#### (progn (shell-command "date +%V") (sit-for 3))
+
+####     Dezember 2013   
+#### Mo Di Mi Do Fr Sa So
+####                    1     # KW 48, Teil 2
+####  2  3  4  5  6  7  8     # KW 49
+####  9 10 11 12 13 14 15     # KW 50
+#### 16 17 18 19 20 21 22     # KW 51
+#### 23 24 25 26 27 28 29     # KW 52
+#### 30 31                    # KW 53
+
+#### KW 49
+
+Wed Dec  4 09:00:00 CET 2013
+Wed Dec  4 12:00:00 CET 2013
+
+## Local Variables:
+## comment-start:"#"
+## End:
