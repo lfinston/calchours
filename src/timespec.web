@@ -1,0 +1,700 @@
+@q timespec.web @>
+@q /home/lfinsto/calchours/src/timespec.web  @>
+
+@q Created by Laurence D. Finston (LDF) Wed Oct 16 12:55:51 CEST 2013 @>
+
+@q * (1) Copyright and License. @>
+
+@q This file is part of calchours, a package for keeping track of working hours. @>
+@q Copyright (C) 2013, 2014 Laurence D. Finston @>
+
+@q calchours is free software; you can redistribute it and/or modify  @>
+@q it under the terms of the GNU General Public License as published by  @>
+@q the Free Software Foundation; either version 3 of the License, or  @>
+@q (at your option) any later version.   @>
+
+@q gwrdifpk is distributed in the hope that it will be useful,  @>
+@q but WITHOUT ANY WARRANTY; without even the implied warranty of  @>
+@q MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the  @>
+@q GNU General Public License for more details.   @>
+
+@q You should have received a copy of the GNU General Public License  @>
+@q along with gwrdifpk; if not, write to the Free Software  @>
+@q Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA @>
+
+@q gwrdifpk is available for downloading via Git from  @>
+@q https://github.com/lfinston/gwrdifpk-github.git. @>
+
+@q Please send bug reports to Laurence.Finston@gmx.de @>
+
+@q The author can be contacted at:  @>
+
+@q Laurence.Finston@gmx.de @>
+
+@q * (1) Top @>
+
+@q ** (2) Include files@>
+
+@ Include files.
+\initials{LDF 2013.09.05.}
+
+@<Include files@>=
+
+#include <unistd.h>
+#include <errno.h>
+#include <string.h>
+
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <pthread.h>  /* POSIX threads  */
+
+#include <mysql.h>
+
+#include <iomanip>
+#include <ios>
+#include <iostream>
+#include <fstream>
+#include <sstream>   
+#include <string>
+#include <limits.h>
+#include <vector>
+#include <map>
+
+
+#if 0 
+#include <getopt.h>
+#include <deque>
+#include <set>
+#include <stack>
+#include <utility>
+#endif 
+
+#if HAVE_CONFIG_H
+#include <config.h>
+#endif 
+
+
+@q ** (2) |class Time_Spec_Type| declaration.  @>
+
+@ |class Time_Spec_Type| declaration.
+\initials{LDF 2013.10.11.}
+
+\LOG
+\initials{LDF 2013.10.11.}
+Added this |class| declaration.
+
+\initials{LDF 2013.10.16.}
+Added |int day_of_week|.
+\ENDLOG
+
+@<|class Time_Spec_Type| declaration@>=
+
+class Time_Spec_Type
+{
+    friend int calc_hours(MYSQL *&mysql_ptr, 
+                          struct tm *&curr_tm_ptr,
+                          int month, 
+                          int year, 
+                          vector<int> &holiday_vector,
+                          vector<int> &sick_day_vector,
+                          vector<int> &vacation_day_vector);
+
+    int year;
+    int month;
+    int week;
+    int day;
+
+    int day_of_week;
+
+    string day_of_week_str;
+
+
+    int hour[2];
+    int minute[2];
+    int second[2];
+
+    unsigned long int sse[2];
+
+    float hour_diff;
+   
+    string hour_diff_str;
+
+    public:
+
+    Time_Spec_Type(void);
+    Time_Spec_Type(const Time_Spec_Type &t);
+
+    int set(MYSQL_ROW &curr_row, unsigned int field_ctr);
+
+    void clear(void);
+
+    void show(void);
+
+};
+
+@q *** (3) |class Time_Spec_Type| default constructor.  @>
+@ |class Time_Spec_Type| default constructor.
+\initials{LDF 2013.10.11.}
+
+\LOG
+\initials{LDF 2013.10.11.}
+Added this function.
+\ENDLOG
+
+@<|class Time_Spec_Type| constructor definitions@>=
+
+Time_Spec_Type::Time_Spec_Type(void) 
+{
+    year = month = week = day = day_of_week = hour[0] = hour[1] = minute[0] = minute[1] 
+       = second[0] = second[1] = 0;
+
+    sse[0] = sse[1] = 0UL;
+
+    hour_diff = 0.0F;
+
+}
+
+
+@q *** (3) |class Time_Spec_Type| copy constructor.  @>
+@ |class Time_Spec_Type| copy constructor.
+\initials{LDF 2013.10.11.}
+
+\LOG
+\initials{LDF 2013.10.11.}
+Added this function.
+\ENDLOG
+
+@<|class Time_Spec_Type| constructor definitions@>=
+
+Time_Spec_Type::Time_Spec_Type(const Time_Spec_Type &t) 
+{
+    year          = t.year;
+    month         = t.month;
+    week          = t.week;
+    day           = t.day; 
+    day_of_week   = t.day_of_week;
+
+    day_of_week_str = t.day_of_week_str;
+
+    hour[0]       = t.hour[0];   
+    hour[1]       = t.hour[1];
+    minute[0]     = t.minute[0];
+    minute[1]     = t.minute[1];
+    second[0]     = t.second[0];
+    second[1]     = t.second[1];
+    sse[0]        = t.sse[0];        
+    sse[1]        = t.sse[1];        
+    hour_diff     = t.hour_diff;
+    hour_diff_str = t.hour_diff_str;
+
+    return;
+
+}
+
+@q *** (3) |Time_Spec_Type::set| definition.  @>
+@ |Time_Spec_Type::set| definition.
+\initials{LDF 2013.10.11.}
+
+\LOG
+\initials{LDF 2013.10.11.}
+Added this function.
+
+\initials{LDF 2013.12.06.}
+Fixed the problem of what happens when 59 minutes is rounded up to 60.
+\ENDLOG
+
+@<|Time_Spec_Type::set| definition@>=
+int
+Time_Spec_Type::set(MYSQL_ROW &curr_row, unsigned int field_ctr) 
+{
+@q **** (4) @>
+
+
+   bool DEBUG = false;  /* |true|  */
+
+#if DEBUG_COMPILE
+   if (DEBUG)
+   {
+       cerr << "Entering `Time_Spec_Type::set'." << endl;
+
+       for (int i = 0; i < field_ctr; ++i)
+       {
+           cerr << "`curr_row[" << i << "]'";
+
+           if (i < 10)
+               cerr << " ";
+
+           cerr << " == " << curr_row[i] << endl;
+       }
+
+   }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q **** (4) @>
+@
+@<|Time_Spec_Type::set| definition@>=
+
+    if ((year = atoi(curr_row[9])) != atoi(curr_row[16]))
+    {
+        cerr << "ERROR!  In `Time_Spec_Type::set':  Start year and end year don't match:"
+             << endl
+             << "Start year == `curr_row[9]' == " << curr_row[9]
+             << endl 
+             << "End year   == `curr_row[16]' == " << curr_row[16]
+             << endl
+             << "This isn't permitted.  Exiting function unsuccessfully with return value 1."
+             << endl;
+
+        return 1;
+
+    }
+#if DEBUG_COMPILE
+   else if (DEBUG)
+   {
+       cerr << "`year'        == " << year << endl;
+
+   }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q **** (4) @>
+@
+@<|Time_Spec_Type::set| definition@>=
+
+    if ((month = atoi(curr_row[10])) != atoi(curr_row[17]))
+    {
+        cerr << "ERROR!  In `Time_Spec_Type::set':  Start month and end month don't match:"
+             << endl
+             << "Start month == `curr_row[10]' == " << curr_row[10]
+             << endl 
+             << "End month   == `curr_row[17]' == " << curr_row[17]
+             << endl
+             << "This isn't permitted.  Exiting function unsuccessfully with return value 1."
+             << endl;
+
+        return 1;
+
+    }
+#if DEBUG_COMPILE
+   else if (DEBUG)
+   {
+       cerr << "`month'       == " << month << endl;
+
+   }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q **** (4) @>
+@
+@<|Time_Spec_Type::set| definition@>=
+
+    if ((week = atoi(curr_row[11])) != atoi(curr_row[18]))
+    {
+        cerr << "ERROR!  In `Time_Spec_Type::set':  Start week and end week don't match:"
+             << endl
+             << "Start week == `curr_row[11]' == " << curr_row[11]
+             << endl 
+             << "End week   == `curr_row[18]' == " << curr_row[18]
+             << endl
+             << "This isn't permitted.  Exiting function unsuccessfully with return value 1."
+             << endl;
+
+        return 1;
+
+    }
+#if DEBUG_COMPILE
+   else if (DEBUG)
+   {
+       cerr << "`week'        == " << week << endl;
+
+   }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+
+@q **** (4) @>
+@
+@<|Time_Spec_Type::set| definition@>=
+
+    if ((day = atoi(curr_row[12])) != atoi(curr_row[19]))
+    {
+        cerr << "ERROR!  In `Time_Spec_Type::set':  Start day and end day don't match:"
+             << endl
+             << "Start day == `curr_row[12]' == " << curr_row[12]
+             << endl 
+             << "End day   == `curr_row[19]' == " << curr_row[19]
+             << endl
+             << "This isn't permitted.  Exiting function unsuccessfully with return value 1."
+             << endl;
+
+        return 1;
+
+    }
+#if DEBUG_COMPILE
+   else if (DEBUG)
+   {
+       cerr << "`day'         == " << day << endl;
+
+   }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+   
+
+@q **** (4) @>
+@
+@<|Time_Spec_Type::set| definition@>=
+
+   sse[0]    = strtoul(curr_row[1], 0, 10);
+   hour[0]   = atoi(curr_row[13]);
+   minute[0] = atoi(curr_row[14]);
+   second[0] = atoi(curr_row[15]);
+
+   sse[1]    = strtoul(curr_row[3], 0, 10);
+   hour[1]   = atoi(curr_row[20]);   
+   minute[1] = atoi(curr_row[21]);
+   second[1] = atoi(curr_row[22]);
+
+   hour_diff_str = curr_row[8];
+
+   hour_diff_str.erase(0, 2);
+   hour_diff_str.insert(0, ",");
+   hour_diff_str.insert(0, curr_row[7]);
+
+   hour_diff = strtof(curr_row[6], 0);
+   
+   day_of_week = atoi(curr_row[24]);
+
+   day_of_week_str =  day_of_week_map[day_of_week];
+
+#if DEBUG_COMPILE
+   if (DEBUG)
+   {
+        cerr << "sse[0]        == " << sse[0] << endl
+             << "hour[0]       == " << hour[0] << endl
+             << "minute[0]     == " << minute[0] << endl
+             << "second[0]     == " << second[0] << endl
+             << "sse[1]        == " << sse[1] << endl
+             << "hour[1]       == " << hour[1] << endl
+             << "minute[1]     == " << minute[1] << endl
+             << "second[1]     == " << second[1] << endl
+             << "hour_diff_str == " << hour_diff_str << endl
+             << "hour_diff     == " << hour_diff << endl;
+
+   }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q **** (4) If |round_to_minute == true|, round time values.  @>
+
+@ If |round_to_minute == true|, round time values.
+\initials{LDF 2013.10.16.}
+
+\LOG
+\initials{LDF 2013.10.16.}
+Added this section.
+\ENDLOG
+
+@<|Time_Spec_Type::set| definition@>=
+
+   if (round_to_minute == true)
+   {
+@q ***** (5) @>
+
+       unsigned long int save_sse[2];
+
+#if DEBUG_COMPILE
+       if (DEBUG)
+       {
+   
+            cerr << "In `Time_Spec_Type::set':  `round_to_minute' == `true'."
+                 << endl
+                 << "Rounding values to nearest minute."
+                 << endl
+                 << "Before rounding:"
+                 << endl 
+                 << "0:  " << setw(2) << setfill('0') 
+                 << hour[0] 
+                 << ":" 
+                 << setw(2) << setfill('0') 
+                 << minute[0] << ":" 
+                 << setw(2) << setfill('0') << second[0]
+                 << endl 
+                 << "1:  " 
+                 << setw(2) << setfill('0') 
+                 << hour[1] << ":" 
+                 << setw(2) << setfill('0') 
+                 << minute[1] << ":" 
+                 << setw(2) << setfill('0') 
+                 << second[1]
+                 << endl 
+                 << "hour_diff:  " 
+                 << hour_diff << " (" << fixed << setprecision(2) << hour_diff << ")"
+                 << endl
+                 << fixed << setprecision(5);
+
+       }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q ***** (5) @>
+
+       for (int i = 0; i < 2; ++i)
+       {
+           save_sse[i] = sse[i];
+
+           if (second[i] > 30)
+           {
+               minute[i] += 1;
+               sse[i] += 60 - second[i];
+           }
+           else
+               sse[i] -= second[i];
+             
+           second[i] = 0;
+
+           if (minute[i] == 60)
+           {
+              minute[i] = 0;
+              ++(hour[i]);
+           }
+
+ 
+       }  /* |for|  */
+
+       hour_diff = (sse[1] - sse[0]) / 3600.0;
+
+       stringstream temp_strm;
+       string temp_str;
+       size_t pos;
+
+       temp_strm.str("");
+
+       temp_strm << fixed << setprecision(2) << hour_diff;
+
+       temp_str = temp_strm.str();
+
+       pos = temp_str.find(".");
+
+       temp_str.insert(pos, ",");
+       temp_str.erase(pos + 1, 1);
+
+       hour_diff_str = temp_str;
+
+#if DEBUG_COMPILE
+       if (DEBUG)
+       {
+            cerr << "In `Time_Spec_Type::set':  After rounding:"
+                 << endl
+                 << "0:  " << setw(2) << setfill('0') 
+                 << hour[0] 
+                 << ":" 
+                 << setw(2) << setfill('0') 
+                 << minute[0] << ":" 
+                 << setw(2) << setfill('0') << second[0]
+                 << endl 
+                 << "1:  " 
+                 << setw(2) << setfill('0') 
+                 << hour[1] << ":" 
+                 << setw(2) << setfill('0') 
+                 << minute[1] << ":" 
+                 << setw(2) << setfill('0') 
+                 << second[1]
+                 << endl 
+                 << "hour_diff: " 
+                 << hour_diff << " (" << fixed << setprecision(2) << hour_diff << ")"
+                 << endl
+                 << fixed << setprecision(5)
+                 << "hour_diff_str: " << hour_diff_str
+                 << endl
+                 << "save_sse[0]          == " << save_sse[0]
+                 << endl 
+                 << "sse[0]               == " << sse[0]
+                 << endl
+                 << "save_sse[1]          == " << save_sse[1]
+                 << endl 
+                 << "sse[1]               == " << sse[1]
+                 << endl
+                 << "Difference 0         == ";
+
+            if (save_sse[0] > sse[0])
+               cerr << setw(2) << (save_sse[0] - sse[0]) << " - ";
+            else
+               cerr << setw(2) << (sse[0] - save_sse[0]) << " + ";
+
+            cerr << endl
+                 << "Difference 1         == ";
+            
+            if (save_sse[1] > sse[1])
+               cerr << setw(2) << (save_sse[1] - sse[1]) << " - ";
+            else
+               cerr << setw(2) << (sse[1] - save_sse[1]) << " + ";
+ 
+            cerr << endl
+                 << "`hour[0]'   == " << hour[0]
+                 << endl 
+                 << "`hour[1]'   == " << hour[1]
+                 << endl 
+                 << "`minute[0]' == " << minute[0]
+                 << endl 
+                 << "`minute[1]' == " << minute[1]
+                 << endl 
+                 << "`second[0]' == " << second[0]
+                 << endl 
+                 << "`second[1]' == " << second[1]
+                 << endl 
+                 << "`sse[0]'    == " << sse[0]
+                 << endl 
+                 << "`sse[1]'    == " << sse[1]
+                 << endl 
+                 << "`hour_diff' == " << hour_diff
+                 << endl;
+
+       }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q ***** (5) @>
+
+   }  /* |if (round_to_minute == true)|  */
+
+@q **** (4) @>
+@
+@<|Time_Spec_Type::set| definition@>=
+
+#if DEBUG_COMPILE
+   else if (DEBUG)
+   {
+   
+        cerr << "In `Time_Spec_Type::set':  `round_to_minute' == `false'."
+             << endl
+             << "Not rounding values to nearest minute."
+             << endl;
+
+   }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q **** (4) @>
+
+#if DEBUG_COMPILE
+   if (DEBUG)
+   {
+       cerr << "Exiting `Time_Spec_Type::set' successfully with return value 0." 
+            << endl;
+
+   }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+    return 0;
+
+}  /* End of |Time_Spec_Type::set| definition  */
+
+@q *** (3) |Time_Spec_Type::show| definition.  @>
+@ |Time_Spec_Type::show| definition.
+\initials{LDF 2013.10.11.}
+
+\LOG
+\initials{LDF 2013.10.11.}
+Added this function.
+\ENDLOG
+
+@<|Time_Spec_Type::show| definition@>=
+void
+Time_Spec_Type::show(void) 
+{
+
+    cerr << "year            == " << year << endl 
+         << "month           == " << month << endl 
+         << "week            == " << week << endl 
+         << "day             == " << day << endl 
+         << "day_of_week     == " << day_of_week << endl
+         << "day_of_week_str == " << day_of_week_str << endl 
+         << "sse[0]          == " << sse[0] << endl
+         << "hour[0]         == " << hour[0] << endl
+         << "minute[0]       == " << minute[0] << endl
+         << "second[0]       == " << second[0] << endl
+         << "sse[1]          == " << sse[1] << endl
+         << "hour[1]         == " << hour[1] << endl
+         << "minute[1]       == " << minute[1] << endl
+         << "second[1]       == " << second[1] << endl
+         << "hour_diff_str   == " << hour_diff_str << endl
+         << "hour_diff       == " << hour_diff << endl;
+
+    return;
+
+}
+
+@q *** (3) |Time_Spec_Type::clear| definition.  @>
+@ |Time_Spec_Type::clear| definition.
+\initials{LDF 2013.10.11.}
+
+\LOG
+\initials{LDF 2013.10.11.}
+Added this function.
+\ENDLOG
+
+@<|Time_Spec_Type::clear| definition@>=
+void
+Time_Spec_Type::clear(void) 
+{
+    year = month = week = day = day_of_week = hour[0] = hour[1] = minute[0] = minute[1]
+         = second[0] = second[1] = 0;
+
+    sse[0] = sse[1] = 0UL;
+
+    hour_diff = 0.0F;
+
+    day_of_week_str = hour_diff_str = "";
+
+    return;
+
+}
+
+@q *** (3) @>
+@
+@<Garbage@>=
+/* 
+   Ignore.  
+*/
+
+@q ** (2) This is what's compiled.  @>
+
+@ This is what's compiled.  
+\initials{LDF 2013.10.16.}
+
+@c
+using namespace std;
+@<Include files@>@;@/
+extern map<string, int> month_map;
+extern map<int, string> day_of_week_map;
+extern map<int, string> month_name_map;
+extern ostream *out_strm;
+extern bool round_to_minute;
+@<|class Time_Spec_Type| declaration@>@;@/
+@<|class Time_Spec_Type| constructor definitions@>@;@/
+@<|Time_Spec_Type::set| definition@>@;@/
+@<|Time_Spec_Type::clear| definition@>@;@/
+@<|Time_Spec_Type::show| definition@>@;@/
+
+@q ** (2) This is what's written to the header file `timespec.h'.  @>
+
+@ This is what's written to the header file \filename{timespec.h}.  
+\initials{LDF 2013.09.05.}
+
+@(timespec.h++@>=
+#ifndef TIMESPEC_H
+#define TIMESPEC_H
+@<|class Time_Spec_Type| declaration@>@;@/
+#endif 
+
+#if 0 
+@<Garbage@>@;@/
+#endif 
+
+@q (progn (cweb-mode) (outline-minor-mode))                                @>
+
+@q * (1) Local variables for Emacs @>
+
+@q * Local variables for Emacs.@>
+@q Local Variables: @>
+@q mode:CWEB @>
+@q eval:(display-time) @>
+@q abbrev-mode:t @>
+@q eval:(read-abbrev-file) @>
+@q indent-tabs-mode:nil @>
+@q eval:(outline-minor-mode) @>
+@q fill-column:80 @>
+@q End: @>

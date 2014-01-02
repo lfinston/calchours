@@ -1,0 +1,1248 @@
+@q cmdlnopt.web @>
+@q Created by Laurence D. Finston (LDF) Mon Oct 14 10:38:42 CEST 2013 @>
+
+@q * (1) Copyright and License. @>
+
+@q This file is part of calchours, a package for keeping track of working hours. @>
+@q Copyright (C) 2013, 2014 Laurence D. Finston @>
+
+@q calchours is free software; you can redistribute it and/or modify  @>
+@q it under the terms of the GNU General Public License as published by  @>
+@q the Free Software Foundation; either version 3 of the License, or  @>
+@q (at your option) any later version.   @>
+
+@q gwrdifpk is distributed in the hope that it will be useful,  @>
+@q but WITHOUT ANY WARRANTY; without even the implied warranty of  @>
+@q MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the  @>
+@q GNU General Public License for more details.   @>
+
+@q You should have received a copy of the GNU General Public License  @>
+@q along with gwrdifpk; if not, write to the Free Software  @>
+@q Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA @>
+
+@q gwrdifpk is available for downloading via Git from  @>
+@q https://github.com/lfinston/gwrdifpk-github.git. @>
+
+@q Please send bug reports to Laurence.Finston@gmx.de @>
+
+@q The author can be contacted at:  @>
+
+@q Laurence.Finston@gmx.de @>
+
+@q * (1) Command line option processing@>
+@* Command line option processing.
+
+\LOG
+\initials{LDF 2013.10.14.}
+Added this file.
+\ENDLOG
+
+@q ** (2) Include files  @>
+
+@ Include files.
+
+@<Include files@>=
+#include <stdlib.h>
+#include <stdio.h>
+#include <sys/mman.h>
+
+#include <getopt.h> 
+#include <limits.h> 
+
+#include <errno.h> 
+
+#include <fstream>
+#include <iomanip>
+#include <ios>
+#include <iostream>
+#include <map>
+#include <string>
+#include <string.h>
+#include <time.h>
+#include <math.h>
+#include <sstream>   
+#include <vector>
+
+#if 0 
+#include <deque>
+#endif 
+
+#if HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+#ifndef DEBUG_COMPILE
+#define DEBUG_COMPILE 1
+#endif 
+
+#ifndef _XOPEN_SOURCE
+#define _XOPEN_SOURCE
+#endif 
+
+@q * (0) Command-Line Options Processing.  @>
+@ Command-Line Options Processing.  
+\initials{LDF 2012.07.02.}
+
+@q ** (2) Process Command Line Options @>
+@ Process Command Line Options.
+\initials{LDF 2012.07.02.}
+
+\LOG
+\initials{LDF 2012.07.02.}
+Added this function.
+\ENDLOG
+
+@q *** (3) Declaration  @>
+
+@<|process_command_line_options| declaration@>=
+
+int
+process_command_line_options(int argc, char* argv[]);
+
+@q *** (3) Definition  @>
+@
+@<|process_command_line_options| definition@>=
+int
+process_command_line_options(int argc, char* argv[])
+{
+
+   bool DEBUG = false;  /* |true|  */
+
+   int status = 0;
+
+@q **** (4) @>
+
+   int option_ctr;
+   int digit_optind = 0;
+
+   size_t pos;
+   char *temp_str = 0;
+
+@q *** (3) Index constants.@>
+@ Index constants.
+\initials{LDF 2013.10.14.}
+
+\LOG
+\initials{LDF 2013.10.14.}
+Added this section.
+
+\initials{LDF 2013.10.24.}
+Added the |const unsigned short| variables |SHORT_COLUMN_INDEX| 
+and |VACATION_DAYS_INDEX|.
+\ENDLOG
+
+@<|process_command_line_options| definition@>=
+
+  const unsigned short INPUT_FILENAME_INDEX          =  0;   
+  const unsigned short OUTPUT_FILENAME_INDEX         =  1;
+  const unsigned short ROUND_TO_MINUTE_INDEX         =  2;
+  const unsigned short HOLIDAYS_INDEX                =  3;
+  const unsigned short SICK_DAYS_INDEX               =  4;
+  const unsigned short VACATION_DAYS_INDEX           =  5; 
+  const unsigned short HOURS_PER_WEEK_INDEX          =  6;
+  const unsigned short PERCENTAGE_INDEX              =  7;   
+  const unsigned short OVERTIME_PREVIOUS_MONTH_INDEX =  8;
+  const unsigned short EMPLOYEE_NAME_INDEX           =  9;
+  const unsigned short SHORT_COLUMN_INDEX            = 10;
+  const unsigned short DATE_STRING_INDEX             = 11;
+  const unsigned short HELP_INDEX                    = 12;
+  const unsigned short VERSION_INDEX                 = 13;
+
+
+@q *** (3) Option struct.@>
+@ Option struct.
+\initials{LDF 2012.07.02.}
+
+@<|process_command_line_options| definition@>=
+
+  static struct option long_options[] = {
+    {"input-filename",  2, 0, 0},
+    {"output-filename",  2, 0, 0},
+    {"round-to-minute",  0, 0, 0},
+    {"holidays",  1, 0, 0},
+    {"sick-days", 1, 0, 0},
+    {"vacation-days", 1, 0, 0},
+    {"hours-per-week", 1, 0, 0},
+    {"percentage", 1, 0, 0},
+    {"overtime-previous-month", 1, 0, 0},
+    {"employee-name", 1, 0, 0},
+    {"short-column", 0, 0, 0},
+    {"date-string", 1, 0, 0},
+    {"help",  0, 0, 0},
+    {"version",  0, 0, 0},
+    {0, 0, 0, 0}
+  };
+
+  int option_index = 0;
+
+  int this_option_optind = optind ? optind : 1;
+
+@q *** (3) Loop for handling options.@>
+@ Loop for handling options.
+\initials{LDF 2012.07.02.}
+
+@<|process_command_line_options| definition@>=
+
+  while (1) 
+  {
+
+@q **** (4) @>
+
+    option_ctr = getopt_long_only (argc,  
+                                   argv, "",
+                                   long_options, 
+                                   &option_index);
+#if DEBUG_COMPILE 
+    if (DEBUG)
+    {
+        cerr << "option_ctr == " << option_ctr << endl
+             << "option_index == " << option_index << endl;
+
+        if (optarg)
+        {
+
+          cerr << "optarg == " << optarg << endl;
+
+        }  /* |if (optarg)|  */
+
+    }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q **** (4) @>
+
+    if (option_ctr == -1)
+      {
+#if DEBUG_COMPILE 
+        if (DEBUG)
+        {
+
+           cerr << "No more option arguments." << endl;
+
+        }
+#endif  /* |DEBUG_COMPILE|  */ 
+        break;
+      }
+
+@q **** (4) Option.  @>
+@ Option.  
+\initials{LDF 2008.09.09.}
+
+@<|process_command_line_options| definition@>=
+
+    else if (option_ctr == 0)
+    {
+
+@q ***** (5) @>
+
+#if DEBUG_COMPILE 
+      if (DEBUG)
+        {
+
+          cerr << "option " << long_options[option_index].name;
+
+          if (optarg)
+          {
+            cerr << " with arg " << optarg;
+          }
+
+          cerr << endl;
+
+        }
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q ***** (5) input-filename.  @>
+@ \.{input-filename}.
+\initials{LDF 2009.09.28.}
+
+\LOG
+\initials{LDF 2009.09.28.}
+Added this section.
+\ENDLOG
+
+@<|process_command_line_options| definition@>=
+
+        if (option_index == INPUT_FILENAME_INDEX)        
+        {
+
+@q ****** (6) @>
+
+#if DEBUG_COMPILE 
+            if (DEBUG) 
+            {
+
+               cerr << "`option_index' "
+                    << "== `INPUT_FILENAME_INDEX'" 
+                    << endl;
+ 
+               if (optarg)
+                  cerr << "optarg == " << optarg << endl;
+
+            }
+#endif  /* |DEBUG_COMPILE|  */ 
+
+            if (optarg && strlen(optarg) > 0)
+            {
+               input_filename = optarg;
+               read_input = 2;
+            }
+            else
+               read_input = 1;
+
+ 
+@q ****** (6) @>
+
+
+        } /* |if (option_index == INPUT_FILENAME_INDEX)|  */
+
+@q ***** (5) output-filename.@>
+
+@ \.{output-filename}.
+\initials{LDF 2012.07.02.}
+
+\LOG
+\initials{LDF 2012.07.02.}
+Added this section.
+\ENDLOG
+
+@<|process_command_line_options| definition@>=
+
+        else if (option_index == OUTPUT_FILENAME_INDEX)
+        {
+
+@q ****** (6) @>
+
+#if DEBUG_COMPILE 
+            if (DEBUG) 
+            {
+
+               cerr << "`option_index' == "
+                    << "`OUTPUT_FILENAME_INDEX'" 
+                    << endl;
+ 
+               if (optarg)
+                  cerr << "optarg == " << optarg << endl;
+
+            }
+#endif  /* |DEBUG_COMPILE|  */ 
+
+            if (optarg && strlen(optarg) > 0)
+            {
+                output_filename = optarg;
+                do_output = 2;
+            }
+            else
+                do_output = 1;
+
+@q ****** (6) @>
+
+        } /* |else if (option_index == OUTPUT_FILENAME_INDEX)|  */
+
+
+@q ***** (5) round-to-minute.@>
+
+@ \.{round-to-minute}.
+\initials{LDF 2013.10.16.}
+
+\LOG
+\initials{LDF 2013.10.16.}
+Added this section.
+\ENDLOG
+
+@<|process_command_line_options| definition@>=
+
+        else if (option_index == ROUND_TO_MINUTE_INDEX)
+        {
+
+@q ****** (6) @>
+
+#if DEBUG_COMPILE 
+            if (DEBUG) 
+            {
+
+               cerr << "`option_index' == "
+                    << "`ROUND_TO_MINUTE_INDEX'" 
+                    << endl;
+ 
+            }
+#endif  /* |DEBUG_COMPILE|  */ 
+
+            round_to_minute = true;
+
+@q ****** (6) @>
+
+        } /* |else if (option_index == ROUND_TO_MINUTE_INDEX)|  */
+
+@q ***** (5) holidays.@>
+
+@ \.{holidays}.
+\initials{LDF 2013.10.17.}
+
+\LOG
+\initials{LDF 2013.10.17.}
+Added this section.
+\ENDLOG
+
+@<|process_command_line_options| definition@>=
+
+        else if (option_index == HOLIDAYS_INDEX)
+        {
+
+@q ****** (6) @>
+
+            holidays_str = optarg;
+
+#if DEBUG_COMPILE 
+            if (DEBUG) 
+            {
+
+               cerr << "`option_index' == "
+                    << "`HOLIDAYS_INDEX'" 
+                    << endl
+                    << "`holidays_str' == " << holidays_str
+                    << endl;
+
+            }
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q ****** (6) @>
+
+        } /* |else if (option_index == HOLIDAYS_INDEX)|  */
+
+@q ***** (5) sick-days.@>
+
+@ \.{sick-days}.
+\initials{LDF 2013.10.18.}
+
+\LOG
+\initials{LDF 2013.10.18.}
+Added this section.
+\ENDLOG
+
+@<|process_command_line_options| definition@>=
+
+        else if (option_index == SICK_DAYS_INDEX)
+        {
+
+@q ****** (6) @>
+
+            sick_days_str = optarg;
+
+#if DEBUG_COMPILE 
+            if (DEBUG) 
+            {
+
+               cerr << "`option_index' == "
+                    << "`SICK_DAYS_INDEX'" 
+                    << endl
+                    << "`sick_days_str' == " << sick_days_str
+                    << endl;
+
+            }
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q ****** (6) @>
+
+        } /* |else if (option_index == SICK_DAYS_INDEX)|  */
+
+
+@q ***** (5) vacation-days.@>
+
+@ \.{vacation-days}.
+\initials{LDF 2013.10.24.}
+
+\LOG
+\initials{LDF 2013.10.24.}
+Added this section.
+\ENDLOG
+
+@<|process_command_line_options| definition@>=
+
+        else if (option_index == VACATION_DAYS_INDEX)
+        {
+
+@q ****** (6) @>
+
+            vacation_days_str = optarg;
+
+#if DEBUG_COMPILE 
+            if (DEBUG) 
+            {
+
+               cerr << "`option_index' == "
+                    << "`VACATION_DAYS_INDEX'" 
+                    << endl
+                    << "`vacation_days_str' == " << vacation_days_str
+                    << endl;
+
+            }
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q ****** (6) @>
+
+        } /* |else if (option_index == VACATION_DAYS_INDEX)|  */
+
+@q ***** (5) hours-per-week.@>
+
+@ \.{hours-per-week}.
+\initials{LDF 2013.10.18.}
+
+\LOG
+\initials{LDF 2013.10.18.}
+Added this section.
+\ENDLOG
+
+@<|process_command_line_options| definition@>=
+
+        else if (option_index == HOURS_PER_WEEK_INDEX)
+        {
+
+@q ****** (6) @>
+
+            errno = 0;
+            float temp_val = strtof(optarg, 0);
+
+            if (temp_val == 0)
+            {
+               cerr << "ERROR!  In `process_command_line_options':"
+                    << endl 
+                    << "`strtof' returned 0:"
+                    << endl
+                    << strerror(errno)
+                    << endl;
+
+               if (errno != 0)
+                   cerr << "Failed to convert `optarg' == `" << optarg << "' "
+                        << "to a valid value for `hours_per_week'."
+                        << endl;
+
+               else
+                   cerr << "Invalid value for `hours_per_week':  0"
+                        << endl;
+
+               cerr << "Exiting `calchours' unsuccessfully with exit status 1."
+                    << endl;
+
+               exit(1);
+
+            }
+
+            else if (temp_val < 0)
+            {
+               cerr << "ERROR!  In `process_command_line_options':"
+                    << endl 
+                    << "Invalid value for `hours_per_week':  " << temp_val
+                    << endl;
+
+               cerr << "Exiting `calchours' unsuccessfully with exit status 1."
+                    << endl;
+
+               exit(1);
+
+            }
+
+            hours_per_week = temp_val;
+
+#if DEBUG_COMPILE 
+            if (DEBUG) 
+            {
+
+               cerr << "`option_index' == "
+                    << "`HOURS_PER_WEEK_INDEX'" 
+                    << endl
+                    << "`hours_per_week' == " << hours_per_week
+                    << endl;
+
+            }
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q ****** (6) @>
+
+        } /* |else if (option_index == HOURS_PER_WEEK_INDEX)|  */
+
+@q ***** (5) percentage.@>
+
+@ \.{percentage}.
+\initials{LDF 2013.10.18.}
+
+\LOG
+\initials{LDF 2013.10.18.}
+Added this section.
+\ENDLOG
+
+@<|process_command_line_options| definition@>=
+
+        else if (option_index == PERCENTAGE_INDEX)
+        {
+
+@q ****** (6) @>
+
+            errno = 0;
+            long temp_val = strtol(optarg, 0, 10);
+
+            if (temp_val == LONG_MAX || temp_val == LONG_MIN)
+            {
+               cerr << "ERROR!  In `process_command_line_options':"
+                    << endl 
+                    << "`strtol' failed, returning ";
+
+               if (temp_val == LONG_MAX)
+                  cerr << "`LONG_MAX'." << endl;
+               else
+                  cerr << "`LONG_MIN'." << endl;
+
+               cerr << endl
+                    << strerror(errno)
+                    << endl;
+
+               if (errno != 0)
+                   cerr << "Failed to convert `optarg' == `" << optarg << "' "
+                        << "to a valid value for `percentage_hours'."
+                        << endl;
+
+               else
+                   cerr << "Invalid value for `percentage_hours':  0"
+                        << endl;
+
+               cerr << "Exiting `calchours' unsuccessfully with exit status 1."
+                    << endl;
+
+               exit(1);
+
+            }
+
+            else if (temp_val < 0 || temp_val > 100)
+            {
+               cerr << "ERROR!  In `process_command_line_options':"
+                    << endl 
+                    << "Invalid value for `percentage_hours':  " << temp_val
+                    << endl;
+
+               cerr << "Exiting `calchours' unsuccessfully with exit status 1."
+                    << endl;
+
+               exit(1);
+
+            }
+
+            percentage_hours = temp_val;
+
+#if DEBUG_COMPILE 
+            if (DEBUG) 
+            {
+
+               cerr << "`option_index' == "
+                    << "`PERCENTAGE_INDEX'" 
+                    << endl
+                    << "`percentage_hours' == " << percentage_hours
+                    << endl;
+            }
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q ****** (6) @>
+
+        } /* |else if (option_index == PERCENTAGE_INDEX)|  */
+
+@q ***** (5) overtime-previous-month.@>
+
+@ \.{overtime-previous-month}.
+\initials{LDF 2013.10.18.}
+
+\LOG
+\initials{LDF 2013.10.18.}
+Added this section.
+\ENDLOG
+
+@<|process_command_line_options| definition@>=
+
+        else if (option_index == OVERTIME_PREVIOUS_MONTH_INDEX)
+        {
+
+@q ****** (6) @>
+
+            errno = 0;
+            float temp_val = strtof(optarg, 0);
+
+            if (temp_val == 0 && errno != 0)
+            {
+               cerr << "ERROR!  In `process_command_line_options':"
+                    << endl 
+                    << "`strtof' failed, returning 0:"
+                    << endl 
+                    << strerror(errno)
+                    << endl
+                    << "Failed to convert `optarg' == `" << optarg << "' "
+                    << "to a valid value for `overtime_prev_month'."
+                    << endl
+                    << "Exiting `calchours' unsuccessfully with exit status 1."
+                    << endl;
+
+               exit(1);
+
+            }
+
+            else if (temp_val < 0)
+            {
+               cerr << "ERROR!  In `process_command_line_options':"
+                    << endl 
+                    << "Invalid value for `overtime_prev_month':  " << temp_val
+                    << endl
+                    << "Exiting `calchours' unsuccessfully with exit status 1."
+                    << endl;
+
+               exit(1);
+
+            }
+
+            overtime_prev_month = temp_val;
+
+#if DEBUG_COMPILE 
+            if (DEBUG) 
+            {
+
+               cerr << "`option_index' == "
+                    << "`OVERTIME_PREVIOUS_MONTH_INDEX'" 
+                    << endl
+                    << "`overtime_prev_month' == " << overtime_prev_month
+                    << endl;
+            }
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q ****** (6) @>
+
+        } /* |else if (option_index == OVERTIME_PREVIOUS_MONTH_INDEX)|  */
+
+@q ***** (5) employee-name.@>
+
+@ \.{employee-name}.
+\initials{LDF 2013.10.18.}
+
+\LOG
+\initials{LDF 2013.10.18.}
+Added this section.
+\ENDLOG
+
+@<|process_command_line_options| definition@>=
+
+        else if (option_index == EMPLOYEE_NAME_INDEX)
+        {
+
+@q ****** (6) @>
+
+            employee_name = optarg;
+
+#if DEBUG_COMPILE 
+            if (DEBUG) 
+            {
+
+               cerr << "`option_index' == "
+                    << "`EMPLOYEE_NAME_INDEX'" 
+                    << endl
+                    << "`employee_name' == " << employee_name
+                    << endl;
+            }
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q ****** (6) @>
+
+        } /* |else if (option_index == EMPLOYEE_NAME_INDEX)|  */
+
+
+@q ***** (5) short-column.@>
+
+@ \.{short-column}.
+\initials{LDF 2013.10.24.}
+
+\LOG
+\initials{LDF 2013.10.24.}
+Added this section.
+\ENDLOG
+
+@<|process_command_line_options| definition@>=
+
+        else if (option_index == SHORT_COLUMN_INDEX)
+        {
+
+@q ****** (6) @>
+
+            short_column = true;
+
+#if DEBUG_COMPILE 
+            if (DEBUG) 
+            {
+
+               cerr << "`option_index' == "
+                    << "`SHORT_COLUMN_INDEX'" 
+                    << endl
+                    << "`short_column' == " << short_column
+                    << endl;
+            }
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q ****** (6) @>
+
+        } /* |else if (option_index == SHORT_COLUMN_INDEX)|  */
+
+@q ***** (5) date-string.  @>
+@ \.{date-string}.
+\initials{LDF 2013.10.30.}
+
+\LOG
+\initials{LDF 2013.10.30.}
+Added this section.
+\ENDLOG
+
+@<|process_command_line_options| definition@>=
+
+        else if (option_index == DATE_STRING_INDEX)
+        {
+@q ****** (6) @>
+
+#if DEBUG_COMPILE
+            if (DEBUG)
+            {
+                cerr << "In `process_command_line_options':  "
+                     << "`option_index' "
+                     << "== `DATE_STRING_INDEX'."
+                     << endl
+                     << "`optarg' == " << optarg 
+                     << endl;
+
+            }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+            date_str = optarg;
+
+        } /* |else if (option_index == DATE_STRING_INDEX)|  */
+
+@q ***** (5) help.@>
+
+@ \.{help}.
+\initials{LDF 2013.10.17.}
+
+\LOG
+\initials{LDF 2013.10.17.}
+Added this section.
+\ENDLOG
+
+@<|process_command_line_options| definition@>=
+
+        else if (option_index == HELP_INDEX)
+        {
+
+@q ****** (6) @>
+
+#if DEBUG_COMPILE 
+            if (DEBUG) 
+            {
+
+               cerr << "`option_index' == "
+                    << "`HELP_INDEX'" 
+                    << endl;
+ 
+            }
+#endif  /* |DEBUG_COMPILE|  */ 
+
+            cout << "calchours" << endl 
+                 << "Usage:  calchours [OPTION ...] [MONTH [YEAR]]"
+                 << endl 
+                 << "Options:"
+                 << endl 
+                 << "--help                            Print this help message and exit"
+                 << endl 
+                 << "--version                         Print version information and exit"
+                 << endl 
+                 << "--input-filename[=FILENAME]       Default: standard input"
+                 << endl 
+                 << "--output-filename[=FILENAME]      Default: standard output"
+                 << endl 
+                 << "--round-to-minute                 Output only:  "
+                 << "Round time values to nearest minute"
+                 << endl 
+                 << endl 
+                 << "Arguments (optional):"
+                 << endl 
+                 << "MONTH                             Default:  current month.  "
+                 << "Will cause output to be produced."
+                 << endl 
+                 << "YEAR                              Default:  current year  "
+                 << endl;
+
+
+            exit(0);
+
+
+@q ****** (6) @>
+
+        } /* |else if (option_index == HELP_INDEX)|  */
+
+
+@q ***** (5) version.@>
+
+@ \.{version}.
+\initials{LDF 2013.10.17.}
+
+\LOG
+\initials{LDF 2013.10.17.}
+Added this section.
+\ENDLOG
+
+@<|process_command_line_options| definition@>=
+
+        else if (option_index == VERSION_INDEX)
+        {
+
+@q ****** (6) @>
+
+#if DEBUG_COMPILE 
+            if (DEBUG) 
+            {
+
+               cerr << "`option_index' == "
+                    << "`VERSION_INDEX'" 
+                    << endl;
+ 
+            }
+#endif  /* |DEBUG_COMPILE|  */ 
+
+            cout << "calchours 1.0"
+                 << endl 
+                 << "Copyright (C) 2013 Gesellschaft fuer wissenschaftliche Datenverarbeitung "
+                 << "mbH Goettingen, Germany"
+                 << endl
+                 << "Author:  Laurence D. Finston"
+                 << endl;
+
+            exit(0);
+
+@q ****** (6) @>
+
+        } /* |else if (option_index == VERSION_INDEX)|  */
+
+@q ***** (5) Invalid option_index value.@>
+@ Invalid {\tt option\_index} value.
+
+@<|process_command_line_options| definition@>=
+
+        else 
+        {
+
+          cerr << "WARNING!  In `process_command_line_options':"
+               << endl 
+               << "`option_index' has invalid value: "
+               << option_index << endl
+               << "Will try to continue." 
+               << endl;
+
+        }
+
+@q ***** (5) @>
+
+      }  /* |else if (option_ctr == 0)|  */
+
+
+@q **** (4) Ambiguous option.@>
+@ Ambiguous option.
+\initials{LDF 2013.10.14.}
+
+@<|process_command_line_options| definition@>=
+
+    else if (option_ctr == '?')
+    {
+
+        cerr << "WARNING! In `process_command_line_options':"
+             << endl
+             << "`getopt_long_only' returned ambiguous match.  "
+             << "Breaking."
+             << endl;
+
+        break;
+
+    }  /* |else if (option_ctr == '?')|  */
+
+@q **** (4) Invalid option.@>
+@ Invalid option.
+
+@<|process_command_line_options| definition@>=
+
+    else
+    {
+#if DEBUG_COMPILE
+        if (DEBUG) 
+        {
+
+           cerr << "`getopt_long_only' returned invalid option."
+                << endl;
+
+        }
+#endif  /* |DEBUG_COMPILE|  */
+    }
+
+
+@q **** (4) End of while loop.@>
+@ End of while loop.
+
+@<|process_command_line_options| definition@>=
+
+#if DEBUG_COMPILE
+    if (DEBUG) 
+    {
+
+       cerr << "End of option processing" << endl;
+
+    }
+#endif  /* |DEBUG_COMPILE|  */
+
+
+@q **** (4) @>
+
+    } /* |while|  */
+  
+@q *** (3) Non-option command line arguments.  @>
+@ Non-option command line arguments.  
+\initials{LDF 2012.07.02.}
+
+@<|process_command_line_options| definition@>=
+        
+@q **** (4) @>
+
+  if (optind < argc)
+  {
+@q ***** (5) @>
+
+#if DEBUG_COMPILE
+       if (DEBUG)
+       {
+
+          cerr << "non-option ARGV-elements: ";
+
+       }  /* |if (DEBUG)|  */ 
+#endif  /* |DEBUG_COMPILE|  */ 
+    
+       int j = optind;
+
+@q ***** (5) @>
+
+       for (int i = 0; j < argc;  ++i, ++j)
+       {
+@q ****** (6) @>
+
+#if DEBUG_COMPILE
+           if (DEBUG)
+           {
+               cerr << "argv[" << j << "] == " << argv[j] << endl
+                    << "strlen(argv[j]) == " << strlen(argv[j]) << endl;
+
+           }  /* |if (DEBUG)|  */ 
+#endif  /* |DEBUG_COMPILE|  */ 
+
+
+@q ****** (6) First non-option argument:  month.  @>
+
+@ First non-option argument. 
+\initials{LDF 2013.10.14.}
+
+@<|process_command_line_options| definition@>=
+
+           if (i == 0)  
+           {
+@q ******* (7) @>
+
+#if DEBUG_COMPILE
+               if (DEBUG)
+               {
+                   cerr << "In `process_command_line_options':  "
+                        << "Found non-option argument 0:  " << argv[j]
+                        << endl;
+
+               }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */                 
+              
+               errno = 0;
+               unsigned long temp_val = strtoul(argv[j], 0, 10);
+
+               if (temp_val == ULONG_MAX)
+               {
+                   cerr << "ERROR!  In `process_command_line_options':  "
+                        << "`strtoul' failed, returning `ULONG_MAX':"
+                        << endl
+                        << strerror(errno)
+                        << endl
+                        << "Exiting function unsuccessfully with return value 1."
+                        << endl;
+
+               }
+               else if (temp_val == 0 || temp_val > 12)
+               {
+                   cerr << "ERROR!  In `process_command_line_options':  "
+                        << "Invalid value specified for month:  " << temp_val 
+                        << endl
+                        << "Exiting function unsuccessfully with return value 1."
+                        << endl;
+
+               }
+
+               month =  static_cast<int>(temp_val); 
+
+               if (do_output == 0)
+                 do_output = 1;
+
+#if DEBUG_COMPILE
+               if (DEBUG)
+               {
+                   cerr << "month == " << month << endl;
+
+               }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+                 
+
+@q ******* (7) @>
+
+           }  /* |if (i == 0)  */
+
+
+@q ****** (6) Second non-option argument:  year.  @>
+
+@ First non-option argument:  year. 
+\initials{LDF 2013.10.14.}
+
+@<|process_command_line_options| definition@>=
+
+           if (i == 1)  
+           {
+@q ******* (7) @>
+
+#if DEBUG_COMPILE
+               if (DEBUG)
+               {
+                   cerr << "In `process_command_line_options':  "
+                        << "Found non-option argument 1:  " << argv[j]
+                        << endl;
+
+               }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */                 
+              
+               errno = 0;
+               unsigned long temp_val = strtoul(argv[j], 0, 10);
+
+               if (temp_val == ULONG_MAX)
+               {
+                   cerr << "ERROR!  In `process_command_line_options':  "
+                        << "`strtoul' failed, returning `ULONG_MAX':"
+                        << endl
+                        << strerror(errno)
+                        << endl
+                        << "Exiting function unsuccessfully with return value 1."
+                        << endl;
+
+               }
+               else if (temp_val == 0 || temp_val > 2020)
+               {
+                   cerr << "ERROR!  In `process_command_line_options':  "
+                        << "Invalid value specified for year:  " << temp_val 
+                        << endl
+                        << "Exiting function unsuccessfully with return value 1."
+                        << endl;
+
+               }
+
+               year =  static_cast<int>(temp_val); 
+
+               if (do_output == 0)
+                  do_output = 1;
+
+#if DEBUG_COMPILE
+               if (DEBUG)
+               {
+                   cerr << "year == " << year << endl;
+
+               }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+                 
+
+@q ******* (7) @>
+
+           }  /* |if (i == 1)  */
+
+
+
+
+@q ****** (6) @>
+@
+@<|process_command_line_options| definition@>=
+
+       }  /* |for| */ 
+   
+@q ***** (5) @>
+ 
+  } /* |if (optind < argc)|  */
+
+
+@q ****** (6) @>
+@
+@<|process_command_line_options| definition@>=
+
+@q ***** (5) @>
+
+@q **** (4) @>
+
+   return 0;
+
+}  /* End of |process_command_line_options| definition  */
+
+
+@q *** (3) @>
+
+@q ** (2) Putting ``Command-line option processing'' together.@>
+
+@ Putting ``Command-line option processing'' together.
+\initials{LDF 2012.07.02.}
+
+@q *** (3) @>
+
+This is what's compiled.
+\initials{LDF 2012.07.02.}
+
+@c
+@<Include files@>@;@/
+using namespace std;
+extern int year;
+extern int month;
+extern string input_filename;
+extern string output_filename;
+extern int read_input;
+extern int do_output;
+extern bool round_to_minute;
+extern string holidays_str;
+extern string sick_days_str;
+extern string vacation_days_str;
+extern float hours_per_week;
+extern int percentage_hours;
+extern float overtime_prev_month;
+extern string employee_name;
+extern bool short_column;
+extern string date_str;
+@<|process_command_line_options| declaration@>@;@/
+@<|process_command_line_options| definition@>@;
+
+@q *** (3) @>
+
+@ This is what's written to the header file \filename{cmdlnopt.h++}. (which is 
+\initials{LDF 2013.10.14.}
+
+@(cmdlnopt.h++@>=
+@<|process_command_line_options| declaration@>@;@/
+
+@q (progn (cweb-mode) (outline-minor-mode))                                @>
+
+@q * (1) Local variables for Emacs @>
+
+@q * Local variables for Emacs.@>
+@q Local Variables: @>
+@q mode:CWEB @>
+@q eval:(display-time) @>
+@q abbrev-mode:t @>
+@q eval:(read-abbrev-file) @>
+@q indent-tabs-mode:nil @>
+@q eval:(outline-minor-mode) @>
+@q fill-column:80 @>
+@q End: @>

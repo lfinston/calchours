@@ -1,0 +1,33 @@
+@c intro.texi
+@c Created by Laurence D. Finston (LDF) Thu Oct 17 19:11:59 CEST 2013
+
+@c This file is part of the calchours User and Reference Manual.
+@c Copyright (C) 2013, 2014 Laurence D. Finston
+@c See the section "GNU Free Documentation License" in the file 
+@c fdl.texi for copying conditions.
+
+@c * (1) Introduction
+
+@node  Introduction, Invoking, , Top
+@chapter Introduction
+
+@command{caclhours} is a program for calculating monthly working hours.  
+
+@command{caclhours} reads input containing timestamps and stores the data in a database.
+In the same run or at a later time, it reads the data from the database, 
+calculates the working hours for each day and week, and for the complete month,
+and writes output in the form for @TeX{} code, either to standard output, or to
+a file.
+@xref{Invoking}, for more information.
+
+@c ** (2)
+
+@c * (1)
+
+@c Local Variables:
+@c mode:Texinfo
+@c abbrev-mode:t
+@c eval:(outline-minor-mode t)
+@c outline-regexp:"@c *\\*+"
+@c eval:(set (make-local-variable 'run-texi2dvi-on-file) "gwrdifpk.texi")
+@c End:

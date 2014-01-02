@@ -1,0 +1,1601 @@
+@q calchours. @>
+@q /home/lfinsto/calchours/src/calchours.web  @>
+
+@q Created by Laurence D. Finston (LDF) Thu Sep  5 13:25:08 CEST 2013  @>
+
+@q * (1) Top @>
+@** calchours.
+
+@q * (1) Copyright and License. @>
+
+@q This file is part of calchours, a package for keeping track of working hours. @>
+@q Copyright (C) 2013, 2014 Laurence D. Finston @>
+
+@q calchours is free software; you can redistribute it and/or modify  @>
+@q it under the terms of the GNU General Public License as published by  @>
+@q the Free Software Foundation; either version 3 of the License, or  @>
+@q (at your option) any later version.   @>
+
+@q gwrdifpk is distributed in the hope that it will be useful,  @>
+@q but WITHOUT ANY WARRANTY; without even the implied warranty of  @>
+@q MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the  @>
+@q GNU General Public License for more details.   @>
+
+@q You should have received a copy of the GNU General Public License  @>
+@q along with gwrdifpk; if not, write to the Free Software  @>
+@q Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA @>
+
+@q gwrdifpk is available for downloading via Git from  @>
+@q https://github.com/lfinston/gwrdifpk-github.git. @>
+
+@q Please send bug reports to Laurence.Finston@gmx.de @>
+
+@q The author can be contacted at:  @>
+
+@q Laurence.Finston@gmx.de @>
+
+@q env LANG=de_DE date @>
+
+@q ** (2) Include files@>
+
+@ Include files.
+\initials{LDF 2013.09.05.}
+
+@<Include files@>=
+
+#include <unistd.h>
+#include <errno.h>
+#include <string.h>
+#include <time.h>
+
+
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <pthread.h>  /* POSIX threads  */
+
+#include <mysql.h>
+
+#include <iomanip>
+#include <ios>
+#include <iostream>
+#include <fstream>
+#include <sstream>   
+#include <string>
+#include <getopt.h>
+
+#include <vector>
+#include <map>
+
+#if 0 
+#include <deque>
+#include <set>
+#include <stack>
+#include <utility>
+#endif 
+
+#if HAVE_CONFIG_H
+#include <config.h>
+#endif 
+
+#include "timespec.h++"
+#include "calchrs01.h++"
+#include "cmdlnopt.h++"
+
+#include "scanner.h++"
+#include "scanner1.h++"
+
+@q ** (2) Global variables.  @>
+
+@ Global variables.  
+\initials{LDF 2013.09.05.}
+
+@<Global variables@>=
+
+   int month = 0;
+   int year  = 0;
+
+   int read_input = 0;
+   int do_output  = 0;
+
+   bool round_to_minute = false;
+
+   string input_filename;
+   string output_filename;
+
+   string holidays_str;
+   string sick_days_str;
+   string vacation_days_str;
+
+   float overtime_prev_month = 0.0F;
+
+   map<string, int> month_map;
+   map<int, string> month_name_map;
+   map<int, string> day_of_week_map;
+
+   ostream *out_strm = 0;
+
+   float hours_per_day          = 0.0F; 
+   float hours_per_week_regular = 39.8;
+   float hours_per_week         = 0.0F;
+   int percentage_hours         = 50;
+   float hours_month_required   = 0.0F;
+   float hours_month_worked     = 0.0F;
+   int work_days_month          = 0;
+
+   string employee_name = "Laurence Finston";
+
+   bool short_column = false; 
+
+   string date_str;
+
+   extern const int SUNDAY    = 1;
+   extern const int MONDAY    = 2;
+   extern const int TUESDAY   = 3;
+   extern const int WEDNESDAY = 4;
+   extern const int THURSDAY  = 5;
+   extern const int FRIDAY    = 6;
+   extern const int SATURDAY  = 7;
+
+@q ** (2) Main.  @>
+@ Main (|main|).
+
+@<Main@>=
+
+int
+main(int argc, char *argv[])
+{
+@q *** (3) @>
+
+   bool DEBUG = false;  /* |true|  */
+
+   int status;
+
+   bool failed = false;
+
+   MYSQL_RES* result = 0;
+   MYSQL_ROW curr_row;
+
+   unsigned int row_ctr = 0;
+   unsigned int field_ctr = 0;
+   long int affected_rows;
+   string prev_str;
+   string comma_str = "";
+   stringstream sql_strm;
+   time_t temp_time;
+   time_t prev_time = static_cast<time_t>(0);
+   string prev_time_str;
+
+#if 0 
+   cerr << "Entering `calchours'." << endl;
+#endif 
+
+   month_map["Jan"]    =  1;
+   month_map["Feb"]    =  2;
+   month_map["Mar"]    =  3;
+   month_map["Apr"]    =  4;
+   month_map["May"]    =  5;
+   month_map["Jun"]    =  6;
+   month_map["Jul"]    =  7;
+   month_map["Aug"]    =  8;
+   month_map["Sep"]    =  9;
+   month_map["Oct"]    = 10;
+   month_map["Nov"]    = 11;
+   month_map["Dec"]    = 12;
+
+   month_map["M\344r"]     = 3;
+   month_map["M\303\244r"] = 3;
+   month_map["Mär"]        = 3;
+
+   month_map["Mai"]    =  5;
+   month_map["Okt"]    =  10;
+   month_map["Dez"]    =  12;
+
+   month_name_map[1]  = "Januar";
+   month_name_map[2]  = "Februar";
+   month_name_map[3]  = "M{\\\"a}rz";
+   month_name_map[4]  = "April";
+   month_name_map[5]  = "Mai";
+   month_name_map[6]  = "Juni";
+   month_name_map[7]  = "Juli";
+   month_name_map[8]  = "August";
+   month_name_map[9]  = "September";
+   month_name_map[10] = "Oktober";
+   month_name_map[11] = "November";
+   month_name_map[12] = "Dezember";
+
+
+   day_of_week_map[1] = "So";
+   day_of_week_map[2] = "Mo";
+   day_of_week_map[3] = "Di";
+   day_of_week_map[4] = "Mi";
+   day_of_week_map[5] = "Do";
+   day_of_week_map[6] = "Fr";
+   day_of_week_map[7] = "Sa";
+
+   time_t curr_time = time(0);
+
+   struct tm *curr_tm_ptr = localtime(&curr_time);
+
+@q *** (3) @>
+@
+\LOG
+\initials{LDF 2013.10.14.}
+Added this section.
+\ENDLOG
+
+@<Main@>=
+
+   status = process_command_line_options(argc, argv);
+
+   if (status != 0)
+   {
+       cerr << "ERROR!  In `main':  `process_command_line_options' failed, returning "
+            << status << "."
+            << endl
+            << "Failed to process command-line options and/or arguments."
+            << endl
+            << "Exiting `calchours' unsuccessfully with exit status 1."
+            << endl;
+
+       exit(1);
+
+   }  /* |if|  */
+
+#if DEBUG_COMPILE
+   else if (DEBUG)
+   {
+       cerr << "In `main':  `process_command_line_options' succeeded, returning 0."
+            << endl;
+
+   }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q *** (3) @>
+@
+@<Main@>=
+
+   hours_per_week = hours_per_week_regular * percentage_hours / 100.0;
+
+   hours_per_day = hours_per_week / 5;
+
+
+
+#if DEBUG_COMPILE
+   if (DEBUG)
+   {
+       cerr << "In `main':"
+            << endl
+            << "`hours_per_week_regular' == " << hours_per_week_regular
+            << endl 
+            << "`percentage_hours'       == " << percentage_hours
+            << endl 
+            << "`hours_per_week'         == " << hours_per_week
+            << endl 
+            << "`hours_per_day'          == " << hours_per_day
+            << endl;
+
+   }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+
+@q *** (3) @>
+@
+@<Main@>=
+
+#if DEBUG_COMPILE
+   if (DEBUG)
+   {
+        cerr << "month == " << month << endl
+             << "year  == " << year << endl
+             << "read_input == " << read_input << endl
+             << "do_output == " << do_output << endl;
+
+   }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q *** (3) @>
+@
+@<Main@>=
+
+   if (month == 0 || year == 0)
+   {
+       /*  !! START HERE:   LDF 2013.10.14.  Add error handling.  */
+
+       if (month == 0)
+           month = curr_tm_ptr->tm_mon + 1;
+
+       if (year == 0)
+           year = curr_tm_ptr->tm_year + 1900;
+
+#if DEBUG_COMPILE
+       if (DEBUG)
+       {
+           cerr << "Set month and/or year:"
+                << endl 
+                << "month == " << month 
+                << endl
+                << "year ==  " << year
+                << endl;
+
+       }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+   }  /* |if (month == 0 || year == 0)|  */
+
+
+@q *** (3) @>
+@ 
+\LOG
+\initials{LDF 2013.10.16.}
+Added this section.
+\ENDLOG
+
+@<Main@>=
+
+   if (read_input == 0 && do_output == 0)
+      do_output = 1;
+
+@q *** (3) Handle holidays.  @>
+@ Handle holidays.
+\initials{LDF 2013.10.17.}
+
+\LOG
+\initials{LDF 2013.10.17.}
+Added this section.
+\ENDLOG
+
+@<Main@>=
+
+@q **** (4) @>
+
+   vector<int> holiday_vector;
+
+   if (holidays_str.size() > 0 && do_output < 1)
+   {
+       cerr << "WARNING!  In `main':  `holidays_str' is non-empty, "
+            << "but `do_output' == " << do_output << " (< 1):"
+            << endl 
+            << "`holidays_str' == " << holidays_str
+            << endl
+            << "Ignoring `holidays_str'.  Continuing."
+            << endl;
+            
+
+   }  /* |if (holidays_str.size() > 0 && do_output < 1)|  */
+
+@q **** (4) @>
+
+   else if (holidays_str.size() > 0 && do_output > 0)
+   {
+@q ***** (5) @>
+
+       status = set_days_vector(holidays_str, holiday_vector);
+
+       if (status != 0)
+       {
+@q ****** (6) @>
+
+           cerr << "ERROR!  In `main':  `set_days_vector' failed, returning "
+                << status << "."
+                << endl
+                << "Failed to process `holidays_str'."
+                << endl
+                << "Exiting `calchours' unsuccessfully with exit status 1."
+                << endl;
+
+           exit(1);
+
+@q ****** (6) @>
+
+       }  /* |if (status != 0)|  */
+
+@q ***** (5) @>
+@
+@<Main@>=
+
+#if DEBUG_COMPILE
+       else if (DEBUG)
+       {
+@q ****** (6) @>
+
+           cerr << "In `main':  `set_days_vector' succeeded, returning 0."
+                << endl
+                << "Processed `holidays_str' successfully."
+                << endl
+                << "`holiday_vector.size()' == " << holiday_vector.size()
+                << endl;
+
+@q ****** (6) @>
+
+           if (holiday_vector.size() > 0)
+           {
+               cerr << "`holiday_vector':"
+                    << endl;
+
+               for (vector<int>::iterator iter = holiday_vector.begin();
+                    iter != holiday_vector.end();
+                    ++iter)
+               {
+                   cerr << *iter << endl;
+               }
+
+               cerr << endl;
+
+           }  /* |if|  */
+
+@q ****** (6) @>
+
+       }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+
+@q ***** (5) @>
+
+   }  /* |else if (holidays_str.size() > 0 && do_output > 0)|  */
+
+
+@q *** (3) Handle sick days.  @>
+@ Handle sick days.
+\initials{LDF 2013.10.17.}
+
+\LOG
+\initials{LDF 2013.10.17.}
+Added this section.
+\ENDLOG
+
+@<Main@>=
+
+@q **** (4) @>
+
+   vector<int> sick_day_vector;
+
+   if (sick_days_str.size() > 0 && do_output < 1)
+   {
+       cerr << "WARNING!  In `main':  `sick_days_str' is non-empty, "
+            << "but `do_output' == " << do_output << " (< 1):"
+            << endl 
+            << "`sick_days_str' == " << sick_days_str
+            << endl
+            << "Ignoring `sick_days_str'.  Continuing."
+            << endl;
+            
+
+   }  /* |if (sick_days_str.size() > 0 && do_output < 1)|  */
+
+@q **** (4) @>
+
+   else if (sick_days_str.size() > 0 && do_output > 0)
+   {
+@q ***** (5) @>
+
+       status = set_days_vector(sick_days_str, sick_day_vector);
+
+       if (status != 0)
+       {
+@q ****** (6) @>
+
+           cerr << "ERROR!  In `main':  `set_days_vector' failed, returning "
+                << status << "."
+                << endl
+                << "Failed to process `sick_days_str'."
+                << endl
+                << "Exiting `calchours' unsuccessfully with exit status 1."
+                << endl;
+
+           exit(1);
+
+@q ****** (6) @>
+
+       }  /* |if (status != 0)|  */
+
+@q ***** (5) @>
+@
+@<Main@>=
+
+#if DEBUG_COMPILE
+       else if (DEBUG)
+       {
+@q ****** (6) @>
+
+           cerr << "In `main':  `set_days_vector' succeeded, returning 0."
+                << endl
+                << "Processed `sick_days_str' successfully."
+                << endl
+                << "`sick_day_vector.size()' == " << sick_day_vector.size()
+                << endl;
+
+@q ****** (6) @>
+
+           if (sick_day_vector.size() > 0)
+           {
+               cerr << "`sick_day_vector':"
+                    << endl;
+
+               for (vector<int>::iterator iter = sick_day_vector.begin();
+                    iter != sick_day_vector.end();
+                    ++iter)
+               {
+                   cerr << *iter << endl;
+               }
+
+               cerr << endl;
+
+           }  /* |if|  */
+
+@q ****** (6) @>
+
+       }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+
+@q ***** (5) @>
+
+   }  /* |else if (sick_days_str.size() > 0 && do_output > 0)|  */
+
+
+@q *** (3) Handle vacation days.  @>
+@ Handle vacation days.
+\initials{LDF 2013.10.24.}
+
+\LOG
+\initials{LDF 2013.10.24.}
+Added this section.
+\ENDLOG
+
+@<Main@>=
+
+@q **** (4) @>
+
+   vector<int> vacation_day_vector;
+
+   if (vacation_days_str.size() > 0 && do_output < 1)
+   {
+       cerr << "WARNING!  In `main':  `vacation_days_str' is non-empty, "
+            << "but `do_output' == " << do_output << " (< 1):"
+            << endl 
+            << "`vacation_days_str' == " << vacation_days_str
+            << endl
+            << "Ignoring `vacation_days_str'.  Continuing."
+            << endl;
+            
+
+   }  /* |if (vacation_days_str.size() > 0 && do_output < 1)|  */
+
+@q **** (4) @>
+
+   else if (vacation_days_str.size() > 0 && do_output > 0)
+   {
+@q ***** (5) @>
+
+       status = set_days_vector(vacation_days_str, vacation_day_vector);
+
+       if (status != 0)
+       {
+@q ****** (6) @>
+
+           cerr << "ERROR!  In `main':  `set_days_vector' failed, returning "
+                << status << "."
+                << endl
+                << "Failed to process `vacation_days_str'."
+                << endl
+                << "Exiting `calchours' unsuccessfully with exit status 1."
+                << endl;
+
+           exit(1);
+
+@q ****** (6) @>
+
+       }  /* |if (status != 0)|  */
+
+@q ***** (5) @>
+@
+@<Main@>=
+
+#if DEBUG_COMPILE
+       else if (DEBUG)
+       {
+@q ****** (6) @>
+
+           cerr << "In `main':  `set_days_vector' succeeded, returning 0."
+                << endl
+                << "Processed `vacation_days_str' successfully."
+                << endl
+                << "`vacation_day_vector.size()' == " << vacation_day_vector.size()
+                << endl;
+
+@q ****** (6) @>
+
+           if (vacation_day_vector.size() > 0)
+           {
+               cerr << "`vacation_day_vector':"
+                    << endl;
+
+               for (vector<int>::iterator iter = vacation_day_vector.begin();
+                    iter != vacation_day_vector.end();
+                    ++iter)
+               {
+                   cerr << *iter << endl;
+               }
+
+               cerr << endl;
+
+           }  /* |if|  */
+
+@q ****** (6) @>
+
+       }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+
+@q ***** (5) @>
+
+   }  /* |else if (vacation_days_str.size() > 0 && do_output > 0)|  */
+
+
+
+@q **** (4) @>
+@
+@<Main@>=
+
+@q *** (3) @>
+@
+@<Main@>=
+
+   ofstream output_file_strm;
+
+   if (do_output > 1)
+   {
+@q **** (4) @>
+
+        output_file_strm.open(output_filename.c_str());
+
+        if (!(output_file_strm && output_file_strm.is_open()))
+        {
+             cerr << "ERROR!  In `main':  Failed to open file `" << output_filename << "' "
+                  << "for output."
+                  << endl
+                  << "Exiting `calchours' unsuccessfully with exit status 1."
+                  << endl;
+
+             exit(1);
+        }
+
+@q **** (4) @>
+
+#if DEBUG_COMPILE
+        else if (DEBUG)
+        {
+             cerr << "In `main':  Opened file `" << output_filename << "' "
+                  << "for output successfully."
+                  << endl;
+
+        }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q **** (4) @>
+
+        out_strm = &output_file_strm;
+
+        *out_strm << "%%%% " << output_filename << endl << endl;
+
+      
+
+@q **** (4) @>
+
+   }  /* |if (do_output > 1)|  */
+
+@q *** (3) @>
+@
+@<Main@>=
+
+   else if (do_output == 1)
+   {
+#if DEBUG_COMPILE
+        if (DEBUG)
+        {
+             cerr << "In `main':  Will write output to standard output."
+                  << endl;
+
+        }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+        out_strm = &cout;
+
+   }  /* |else if (do_output == 1)|  */
+
+@q *** (3) @>
+@
+@<Main@>=
+
+   if (do_output > 0)
+   {
+       *out_strm << "%% ** (2) Formatting commands"
+                 << endl 
+                 << endl 
+                 << "\\special{papersize=210mm, 297mm}"
+                 << endl 
+                 << "\\vsize=297mm"
+                 << endl 
+                 << "\\hsize=210mm"
+                 << endl 
+                 << "\\advance\\voffset by -1in"
+                 << endl 
+                 << "\\advance\\voffset by 1.5cm"
+                 << endl 
+                 << "\\advance\\vsize by -1.5cm"
+                 << endl 
+                 << "\\advance\\vsize by -1.5cm"
+                 << endl << endl 
+                 << "\\advance\\hoffset by -1in"
+                 << endl 
+                 << "\\advance\\hoffset by 1.25cm"
+                 << endl 
+                 << "\\advance\\hsize by -1.25cm"
+                 << endl << endl 
+                 << "\\advance\\hsize by -.75cm"
+                 << endl << endl 
+                 << "%\\advance\\hoffset by 2.5cm"
+                 << endl 
+                 << "%\\advance\\hsize by -2.5cm"
+                 << endl 
+                 << endl 
+                 << "\\input eplain"
+                 << endl 
+                 << endl 
+                 << "\\parindent=0pt"
+                 << endl 
+                 << endl 
+                 << "\\headline{\\hfil ";
+
+       if (date_str.empty())
+          *out_strm << curr_tm_ptr->tm_mday << ". " 
+                    << month_name_map[curr_tm_ptr->tm_mon + 1] << " " 
+                    << year;
+       else 
+          *out_strm << date_str;
+
+       *out_strm << "}"
+                 << endl 
+                 << "\\footline={\\hss {\\tenrm \\folio\\ von \\folio}\\hss }"
+                 << endl 
+                 << endl 
+                 << "\\font\\large=cmr12"
+                 << endl                 
+                 << "\\font\\largebf=cmbx12"
+                 << endl 
+                 << endl 
+                 << "%% * (1)"
+                 << endl 
+                 << endl 
+                 << "\\centerline{{\\largebf Zeiterfassung " << month_name_map[month] << " "
+                 << year 
+                 << "}}"
+                 << endl 
+                 << "\\vskip.5\\baselineskip"
+                 << endl 
+                 << "\\centerline{{\\large " << employee_name << "}}"
+                 << endl 
+                 << endl 
+                 << "\\vskip-.5\\baselineskip"
+                 << endl 
+                 << endl 
+                 << "%% * (1)"
+                 << endl 
+                 << endl
+                 << "%% ** (2)"
+                 << endl 
+                 << endl
+                 << "%% ** (2)"
+                 << endl 
+                 << endl
+                 << "%% ** (2)"
+                 << endl 
+                 << endl;
+
+   }  /* |if (do_output > 0)|  */
+   
+
+
+@q *** (3) Initialize the MySQL library.  @>
+
+@ Initialize the MySQL library.  
+\initials{LDF 2013.09.05.}
+
+@<Main@>=
+
+    if (mysql_library_init(0, NULL, NULL)) 
+    {
+        cerr << "ERROR!  In `main':  Failed to initialize the MySQL library."
+             << endl
+             << "Exiting `calchours' unsuccessfully with exit status 1."
+             << endl;
+
+        if (do_output > 1)
+           output_file_strm.close();
+
+        exit(1);
+
+    }
+
+#if DEBUG_COMPILE
+    else if (DEBUG)
+    {
+      cerr << "In `main':  mysql_library_init succeeded." << endl;
+    }  
+#endif  /* |DEBUG_COMPILE|  */  
+
+@q *** (3) @>
+@
+@<Main@>=
+
+    MYSQL *mysql_ptr;
+
+    mysql_ptr = mysql_init(0);
+
+    if (mysql_ptr)
+    {
+#if DEBUG_COMPILE 
+       if (DEBUG)
+       {
+
+          cerr << "In `main':  " 
+               << "`mysql_init' succeeded."
+               << endl;
+
+       }  /* |if (DEBUG)|  */ 
+#endif  /* |DEBUG_COMPILE|  */ 
+
+    }  /* |if (mysql_ptr)| */
+
+    else
+    {
+
+       cerr << "ERROR!  In `main':" 
+            << endl
+            << "`mysql_init' failed.  Exiting `calchours' unsuccessfully with "
+            << "exit status 1."
+            << endl;
+
+       if (do_output > 1)
+          output_file_strm.close();
+
+       exit(1);
+
+    }   
+
+@q *** (3) Set |mysql_socket_filename|.  @>
+@ Set |mysql_socket_filename|.  
+\initials{LDF 2013.09.05.}
+
+@<Main@>=
+
+    string mysql_socket_filename;
+
+    errno = 0;
+
+    status = access("/var/run/mysql/mysql.sock", F_OK);
+
+@q *** (3) @>
+
+    if (status == -1)
+    {  
+
+@q **** (4) @>
+
+#if DEBUG_COMPILE
+         if (DEBUG)
+         {
+
+             cerr << "In `main':" 
+                  << endl
+                  << "MySQL server socket file `/var/run/mysql/mysql.sock' doesn't exist:"
+                  << endl 
+                  << "`access' error: " << strerror(errno)
+                  << endl 
+                  << "Trying `/var/run/mysqld/mysqld.sock'."
+                  << endl;
+
+         }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q **** (4) @>
+
+         errno = 0;
+
+         status = access("/var/run/mysqld/mysqld.sock", F_OK);
+
+         if (status == -1)
+         {
+
+              cerr << "ERROR!  In `main':" 
+                   << endl
+                   << "MySQL server socket file `/var/run/mysqld/mysqld.sock' doesn't exist:"
+                   << endl 
+                   << "`access' error: " << strerror(errno)
+                   << endl
+                   << "Tested for `/var/run/mysql/mysql.sock' previously."
+                   << endl
+                   << "Exiting `calchours' unsuccessfully with "
+                   << "exit status 0."
+                   << endl;
+
+              mysql_close(mysql_ptr); 
+              mysql_ptr = 0;
+ 
+              if (do_output > 1)
+                 output_file_strm.close();
+
+              exit(1);
+
+         }  /* |if (status == -1)|  */
+
+@q **** (4) @>
+ 
+         else
+         {
+#if DEBUG_COMPILE
+              if (DEBUG)
+              {
+
+                  cerr << "In `main':" 
+                       << endl
+                       << "MySQL server socket file `/var/run/mysqld/mysqld.sock' exists."
+                       << endl;
+
+              }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+              mysql_socket_filename = "/var/run/mysqld/mysqld.sock";
+
+         }  /* |else|  */
+
+@q **** (4) @>
+
+     }  /* |if (status == -1)|  */
+     
+@q *** (3) @>
+
+     else
+     {
+#if DEBUG_COMPILE
+          if (DEBUG)
+          {
+
+              cerr << "In `main':" 
+                   << endl
+                   << "MySQL server socket file `/var/run/mysql/mysql.sock' exists."
+                   << endl;
+
+          }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+          mysql_socket_filename = "/var/run/mysql/mysql.sock";         
+
+     }  /* |else|  */
+
+@q *** (3) @>
+@
+@<Main@>=
+
+     string temp_str;
+
+     temp_str = "root";
+
+     my_bool reconnect    = 1;
+     unsigned int timeout = 120;
+
+     mysql_options(mysql_ptr, MYSQL_OPT_RECONNECT, &reconnect); 
+     mysql_options(mysql_ptr, MYSQL_OPT_CONNECT_TIMEOUT, &timeout); 
+
+#if 0 
+     mysql_options(mysql_ptr, MYSQL_INIT_COMMAND,"set time_zone = '+0:00'");
+#endif 
+
+     failed = false;
+
+     for (int i = 0; i < 6; ++i)
+     {
+
+          if (!mysql_real_connect(mysql_ptr, 
+                                  0, 
+                                  temp_str.c_str(),
+                                  "root", 
+                                  0,
+                                  0, 
+                                  mysql_socket_filename.c_str(), 0))
+          {
+             failed = true;
+
+             cerr << "ERROR!  In `main':" 
+                  << endl
+                  << "`mysql_real_connect' failed.  "
+                  << "Error:  " << mysql_error(mysql_ptr)
+                  << endl 
+                  << "Error number:  " << mysql_errno(mysql_ptr)
+                  << endl;
+
+              if (i == 5)
+              {
+
+                  cerr << "Exiting `calchours' unsuccessfully with "
+                       << "exit status 1."
+                       << endl;
+
+                  mysql_close(mysql_ptr); 
+                  mysql_ptr = 0;
+
+                  if (do_output > 1)
+                     output_file_strm.close();
+
+                  exit(1);
+
+              }  /* |if|  */
+
+              else
+              {
+
+                  cerr << "Trying again, i.e., calling `mysql_real_connect' again."
+                       << endl;
+
+                  sleep(1);
+
+                  continue;
+
+              }
+
+          }  /* |if|  */
+
+          else
+          {
+              if (failed || DEBUG)
+              {
+
+                 cerr << "In `main':"
+                      << endl
+                      << "`mysql_real_connect' succeeded.  Database user name == " 
+                      << temp_str << "."
+                      << endl; 
+
+              }   
+
+              failed = false;
+
+              break;
+
+          }  /* |else|  */
+
+     }  /* |for|  */
+
+@q *** (3) Select database.  @>
+
+@ Select database.  
+\initials{LDF 2012.07.10.}
+
+@<Main@>=
+
+     temp_str = "ldf";
+
+     failed = false;
+ 
+     for (int i = 0; i < 6; ++i)
+     {
+@q **** (4) @>
+
+          status = mysql_select_db(mysql_ptr, temp_str.c_str());
+
+          if (status == 0)
+          {  
+
+              if (failed || DEBUG)
+              {
+
+                 cerr << "In `main':  "
+                      << "`mysql_select_db succeeded'."
+                      << endl
+                      << "Connected to `" << temp_str << "' database successfully."
+                      << endl;
+
+              }  
+
+              failed = false;
+
+              break;
+
+          }  /* |if (status == 0)| */
+
+          else /* |status != 0| */
+          {
+@q ***** (5) @>
+
+             failed = true;
+
+             cerr << "ERROR!  In `main':  "  
+                  << "`mysql_select_db' failed, returning " << status << "."
+                  << endl
+                  << "Failed to connect to `" << temp_str << "' database."
+                  << endl;
+
+             if (i == 5)
+             {
+
+                  cerr << "Exiting `calchours' unsuccessfully with exit status 1."
+                       << endl;
+
+                  mysql_close(mysql_ptr); 
+
+                  mysql_ptr = 0;
+
+                  if (do_output > 1)
+                     output_file_strm.close();
+
+                  exit(1);
+
+             }   
+             else
+             {
+
+                  cerr << "Trying again, i.e., calling `mysql_select_db' again."
+                       << endl;
+
+                  sleep(1);
+
+                  continue;
+
+             }
+
+@q ***** (5) @>
+
+          }   /* |else| (|status != 0|) */
+
+@q **** (4) @>
+
+     }  /* |for|  */
+
+@q *** (3) @>
+@
+@<Main@>=
+
+     yyscan_t param;
+     vector<pair<time_t, string> > time_vector; 
+     file_node_ptr = new File_Node;
+     FILE *in_file = 0;
+
+     if (read_input == 0)
+     {
+#if DEBUG_COMPILE
+        if (DEBUG)
+        {
+            cerr << "In `main':  `read_input' == 0.  Not reading input."
+                 << endl
+                 << "Skipping to `END_READ_INPUT'."
+                 << endl;
+
+        }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+        goto END_READ_INPUT;
+
+     }  /* |if (read_input == 0)|  */
+
+@q *** (3) @>
+@
+@<Main@>=
+
+    else if (read_input > 1)
+    {
+#if DEBUG_COMPILE
+        if (DEBUG)
+        {
+            cerr << "In `main':  `read_input' == " << " (> 1).  Will read input from file "
+                 << "`" << input_filename << "'."
+                 << endl;
+
+        }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+
+        file_node_ptr->in_filename = input_filename;
+
+        yylex_init_extra(static_cast<void *>(&time_vector), &param);
+
+        if (DEBUG) 
+          cout << "file_node_ptr->in_filename == "
+               << file_node_ptr->in_filename << endl << flush;
+
+        in_file = fopen(file_node_ptr->in_filename.c_str(), "r");
+
+
+        yyset_in(in_file, param);
+
+    }  /* |else if (read_input > 1)|  */
+
+@q *** (3) @>
+@
+@<Main@>=
+
+    else if (read_input == 1)
+    {
+#if DEBUG_COMPILE
+        if (DEBUG)
+        {
+            cerr << "In `main':  `read_input' == 1.  Will read input from standard input."
+                 << endl;
+
+        }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+         /* !! START HERE:  LDF 2013.10.14.  Read from standard input.  */
+
+        yylex_init_extra(static_cast<void *>(&time_vector), &param);
+
+        yyset_in(stdin, param);
+
+    }  /* |else if (read_input == 1)|  */
+
+@q *** (3) @>
+
+    status = yylex(param);
+
+@q *** (3) @>
+
+    if (status != 0)
+    {
+        cerr << "ERROR!  In `main':  "  
+             << "`yylex' failed, returning " << status << "."
+             << endl
+             << "Failed to scan input file `" << file_node_ptr->in_filename << "'."
+             << endl
+             << "Exiting `calchours' unsuccessfully with exit status 1."
+             << endl;
+
+        yylex_destroy(param);
+
+        mysql_close(mysql_ptr); 
+
+        mysql_ptr = 0;
+
+        if (do_output > 1)
+           output_file_strm.close();
+
+        exit(1);
+
+    }  /* |if (status != 0)|  */
+
+@q **** (4) @>
+
+#if DEBUG_COMPILE
+    else if (DEBUG)
+    {
+         cerr << "In `main':  `yylex' succeeded, returning 0."
+              << endl; 
+
+    }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+    if (read_input > 1)
+       status = fclose(in_file);
+
+    yylex_destroy(param);
+
+    temp_time = static_cast<time_t>(0);
+
+    prev_time = static_cast<time_t>(0);
+    prev_time_str = "";
+
+@q *** (3) Warning:  Uneven number of time specifications.  @>
+
+@ Warning:  Uneven number of time specifications.
+The last one is removed.
+\initials{LDF 2013.10.11.}
+\initials{LDF 2013.10.18.}
+
+\LOG
+\initials{LDF 2013.10.18.}
+Changed this code so that a warning is issued and the last time specification is removed from
+|time_vector|.  Previously, an error message was issued and the program exited.
+\ENDLOG
+
+@<Main@>=
+
+@q **** (4) @>
+
+    if (time_vector.size() % 2 != 0)
+    {
+        cerr << "WARNING!  In `main':  "  
+             << "`time_vector.size()' == " << time_vector.size() << " "
+             << "is not evenly divisible by 2."
+             << endl 
+             << "Removing last time specification:"
+             << endl
+             << time_vector.back().first << " " << time_vector.back().second
+             << endl;
+
+         time_vector.pop_back();
+
+    }  /* |if (time_vector.size() % 2 != 0)|  */
+
+#if DEBUG_COMPILE
+   if (DEBUG)
+   {
+       cerr << "In `main':  time_vector.size() == " << time_vector.size() << endl
+            << "`time_vector':"
+            << endl;
+
+   }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+
+
+@q **** (4) @>
+
+    for (vector<pair<time_t, string> >::iterator iter = time_vector.begin();
+         iter != time_vector.end();
+         ++iter)
+    {
+#if DEBUG_COMPILE
+        if (DEBUG)
+        {
+            cerr << iter->first << ", " << iter->second << endl;
+
+        }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+
+        if (iter->first < prev_time)
+        {
+            cerr << "ERROR!  In `main':  "  
+                 << "`iter->first' < `prev_time':"
+                 << endl
+                 << "`iter->first' == " << iter->first << " (" << iter->second << ")"
+                 << endl
+                 << "`prev_time'   == " << prev_time << " (" << prev_time_str << ")"
+                 << endl 
+                 << "Time values are out-of-order.  This isn't permitted."
+                 << endl
+                 << "Exiting `calchours' unsuccessfully with exit status 1."
+                 << endl;
+
+            mysql_close(mysql_ptr); 
+
+            mysql_ptr = 0;
+
+            if (do_output > 1)
+               output_file_strm.close();
+
+            exit(1); 
+
+        }
+  
+        prev_time = iter->first;
+        prev_time_str = iter->second;
+
+    }  /* |for|  */
+
+@q **** (4) @>
+@
+@<Main@>=
+
+    if (time_vector.size() == 0)
+    {
+         cerr << "WARNING!  `time_vector' is empty.  "
+              << "Nothing to write to `ldf.Hours' database table."
+              << endl
+              << "Skipping to `END_READ_INPUT'."
+              << endl;
+
+         goto END_READ_INPUT;
+    }
+
+    sql_strm.str("");
+
+    sql_strm << "replace into ldf.Hours (start, end) values ";
+
+    comma_str = "";
+
+
+
+    for (vector<pair<time_t, string> >::iterator iter = time_vector.begin();
+         iter != time_vector.end();
+         ++iter)
+    {
+
+        sql_strm << comma_str << "('" << iter->second << "', '";
+
+        ++iter;
+
+        sql_strm << iter->second << "')";
+
+        comma_str = ", ";
+
+    }  /* |for|  */
+
+@q **** (4) @>
+@
+@<Main@>=
+
+#if DEBUG_COMPILE
+    if (DEBUG)
+    {
+         cerr << "sql_strm.str() == " << sql_strm.str() << endl;
+
+    }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */    
+
+
+    status = submit_mysql_query(sql_strm.str(), result, mysql_ptr, 0, 0, &affected_rows);
+
+    if (status != 0)
+    {
+        cerr << "ERROR!  In `main':  `submit_mysql_query' failed, returning " << status << "."  
+             << endl
+             << "Failed to replace rows into `ldf.Hours' database table."
+             << endl 
+             << "Exiting `calchours' unsuccessfully with exit status 1."
+             << endl;
+
+        mysql_close(mysql_ptr); 
+
+        mysql_ptr = 0;
+
+        if (do_output > 1)
+           output_file_strm.close();
+
+        exit(1); 
+
+    }  /* |if (status != 0)|  */
+#if DEBUG_COMPILE
+    else if (DEBUG)
+    {
+        cerr << "In `main':  `submit_mysql_query' succeeded, returning 0."
+             << endl
+             << "Replaced rows into `ldf.Hours' database table successfully."
+             << endl
+             << "`affected_rows' == " << affected_rows
+             << endl;
+
+    }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+    mysql_free_result(result);
+    result = 0;
+
+@q **** (4) @>
+
+END_READ_INPUT:
+
+@q *** (3) @>
+@
+@<Main@>=
+
+    if (do_output > 0)
+    {
+@q **** (4) @>
+
+        status = calc_hours(mysql_ptr, 
+                            curr_tm_ptr,
+                            month, 
+                            year, 
+                            holiday_vector, 
+                            sick_day_vector,
+                            vacation_day_vector);
+
+        if (status != 0)
+        {
+            cerr << "ERROR!  In `main':  `calc_hours' failed, returning " << status << "."
+                 << endl 
+                 << "Exiting `calchours' unsuccessfully with exit status 1."
+                 << endl;
+
+            if (mysql_ptr)
+            {
+               mysql_close(mysql_ptr); 
+               mysql_ptr = 0;
+            }
+
+            mysql_library_end();
+
+            if (do_output > 1)
+               output_file_strm.close();
+
+            exit(1);
+
+        }  /* |if (status != 0)|  */
+
+@q **** (4) @>
+
+#if DEBUG_COMPILE
+        else if (DEBUG)
+        {
+    
+            cerr << "[calchours] In `main':  `calc_hours' succeeded, returning 0." 
+                 << endl;
+
+        }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+        *out_strm << "\\bye" << endl << endl;
+    
+
+@q **** (4) @>
+
+    }  /* |if (do_output > 0)|  */
+
+@q *** (3) @>
+
+#if DEBUG_COMPILE
+    else if (DEBUG)
+    {
+         cerr << "In `main':  `do_output' == 0.  Not writing output."
+              << endl;
+
+    }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q *** (3) @>
+@
+@<Main@>=
+
+   if (mysql_ptr)
+   {
+      mysql_close(mysql_ptr); 
+      mysql_ptr = 0;
+   }
+
+   mysql_library_end();
+
+#if 0 
+   cerr << "Exiting `calchours' successfully with exit status 0." 
+        << endl;
+#endif 
+
+   if (do_output > 1)
+      output_file_strm.close();
+
+   exit(0);
+
+}  /* End of |main| definition   */
+
+
+
+@q ** (2) Garbage@>
+
+@ Garbage.  This section needs to exist, because it's included below.
+It can be used for temporarily (or permanently) commenting-out code.
+\initials{LDF 2013.09.05.}
+
+@<Garbage@>=
+#if 0
+   /* Empty  */
+#endif 
+
+
+@q ** (2) This is what's compiled.  @>
+
+@ This is what's compiled.  
+\initials{LDF 2013.09.03.}
+
+@c
+using namespace std;
+@<Include files@>@;@/
+@<Global variables@>@;@/
+@<Main@>@;@/
+
+#if 0 
+@<Garbage@>@;@/
+#endif 
+
+@q (progn (cweb-mode) (outline-minor-mode))                                @>
+
+@q * (1) Local variables for Emacs @>
+
+@q * Local variables for Emacs.@>
+@q Local Variables: @>
+@q mode:CWEB @>
+@q eval:(display-time) @>
+@q abbrev-mode:t @>
+@q eval:(read-abbrev-file) @>
+@q indent-tabs-mode:nil @>
+@q eval:(outline-minor-mode) @>
+@q fill-column:80 @>
+@q End: @>

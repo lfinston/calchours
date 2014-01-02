@@ -1,0 +1,3075 @@
+@q calchrs01.web @>
+@q /home/lfinsto/calchours/src/calchrs01.web  @>
+
+@q Created by Laurence D. Finston (LDF) Thu Sep  5 14:10:39 CEST 2013 @>
+
+@q * (1) Copyright and License. @>
+
+@q This file is part of calchours, a package for keeping track of working hours. @>
+@q Copyright (C) 2013, 2014 Laurence D. Finston @>
+
+@q calchours is free software; you can redistribute it and/or modify  @>
+@q it under the terms of the GNU General Public License as published by  @>
+@q the Free Software Foundation; either version 3 of the License, or  @>
+@q (at your option) any later version.   @>
+
+@q gwrdifpk is distributed in the hope that it will be useful,  @>
+@q but WITHOUT ANY WARRANTY; without even the implied warranty of  @>
+@q MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the  @>
+@q GNU General Public License for more details.   @>
+
+@q You should have received a copy of the GNU General Public License  @>
+@q along with gwrdifpk; if not, write to the Free Software  @>
+@q Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA @>
+
+@q gwrdifpk is available for downloading via Git from  @>
+@q https://github.com/lfinston/gwrdifpk-github.git. @>
+
+@q Please send bug reports to Laurence.Finston@gmx.de @>
+
+@q The author can be contacted at:  @>
+
+@q Laurence.Finston@gmx.de @>
+
+@q * (1) Top @>
+
+@q ** (2) Include files@>
+
+@ Include files.
+\initials{LDF 2013.09.05.}
+
+@<Include files@>=
+
+#include <unistd.h>
+#include <errno.h>
+#include <string.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <pthread.h>  /* POSIX threads  */
+
+#include <mysql.h>
+
+#include <iomanip>
+#include <ios>
+#include <iostream>
+#include <fstream>
+#include <sstream>   
+#include <string>
+#include <limits.h>
+#include <vector>
+#include <map>
+#include <algorithm>
+#include <set>
+
+#if 0 
+#include <getopt.h>
+#include <deque>
+#include <stack>
+#include <utility>
+#endif 
+
+#if HAVE_CONFIG_H
+#include <config.h>
+#endif 
+
+#include "timespec.h++"
+
+
+@q ** (2) Calculate hours (|calc_hours|).  @>
+@ Calculate hours (|calc_hours|).
+
+\LOG
+\initials{LDF 2013.10.18.}
+Added argument |vector<int> &sick_day_vector|.
+
+\initials{LDF 2013.10.24.}
+Added argument |vector<int> &vacation_day_vector|.
+\ENDLOG 
+
+@q *** (3) Declaration @>
+
+@<|calc_hours| declaration@>=
+
+int
+calc_hours(MYSQL *&mysql_ptr, 
+           struct tm *&curr_tm_ptr,
+           int month, 
+           int year, 
+           vector<int> &holiday_vector, 
+           vector<int> &sick_day_vector,
+           vector<int> &vacation_day_vector);
+
+@q *** (3) Definition  @>
+@
+@<|calc_hours| definition@>=
+
+int
+calc_hours(MYSQL *&mysql_ptr, 
+           struct tm *&curr_tm_ptr,
+           int month, 
+           int year, 
+           vector<int> &holiday_vector,
+           vector<int> &sick_day_vector,
+           vector<int> &vacation_day_vector)
+{
+@q **** (4) @>
+
+   bool DEBUG = false;  /* |true|  */
+
+   int status;
+
+   stringstream temp_strm;
+
+   stringstream sql_strm;
+
+   stringstream result_strm;
+
+   stringstream free_day_strm;
+
+   string temp_str;
+
+   size_t pos = 0;
+
+   MYSQL_RES* result = 0;
+   MYSQL_ROW curr_row;
+
+   unsigned int row_ctr   = 0;
+   unsigned int field_ctr = 0;
+   long int affected_rows = 0L;
+
+   bool partial_week_first = false;
+   bool partial_week_last  = false;
+   int first_week_num      = 0;
+   int last_week_num       = 0;
+
+   float temp_float_val = 0.0F;
+
+   string free_day_str;
+   vector<int>::iterator free_day_iter;
+
+   vector<int> week_day_vector;
+   set<int> work_day_set;
+
+   string comma_str  = "";
+
+   int  range_start = 0;
+   bool range_flag  = false;
+
+   int work_day_ctr = 0;
+   float hours_month_required_subtotal = 0.0F;
+
+#if DEBUG_COMPILE
+   if (DEBUG)
+   {
+       cerr << "Entering `calc_hours'." << endl;
+
+   }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */  
+
+@q **** (4) @>
+@
+@<|calc_hours| definition@>=
+
+   sql_strm << "select start, unix_timestamp(start), end, "
+            << "unix_timestamp(end), timediff(end, start), "
+            << "unix_timestamp(end) - unix_timestamp(start), "
+            << "round(((unix_timestamp(end) - unix_timestamp(start)) / 3600), 2), "
+            << "floor(round(((unix_timestamp(end) - unix_timestamp(start)) / 3600), 2)), "
+            << "round(((unix_timestamp(end) - unix_timestamp(start)) / 3600) - "
+            << "floor((unix_timestamp(end) - unix_timestamp(start)) / 3600), 2), "
+            << "year(start), month(start), "
+            << "week(start, 1), day(start), "
+            << "hour(start), minute(start), "
+            << "second(start), "
+            << "year(end), month(end), week(end, 1), day(end), "
+            << "hour(end), minute(end), second(end), dayofweek(start), dayofweek(end) "
+            << "from Hours where month(start) = " << month << " "
+            << "and year(start) = " << year << " "
+            << "order by start";
+
+#if DEBUG_COMPILE
+   if (DEBUG)
+   {
+       cerr << "sql_strm.str() == " << sql_strm.str() << endl;
+
+   }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q **** (4) @>
+@
+@<|calc_hours| definition@>=
+
+   status = submit_mysql_query(sql_strm.str(), result, mysql_ptr, &row_ctr, &field_ctr);
+
+   if (status != 0)
+   {
+       cerr << "ERROR!  In `calc_hours':  `submit_mysql_query' failed, returning " << status << "."
+            << endl
+            << "Failed to retrieve rows from `ldf.Hours' database table."
+            << endl
+            << "Exiting function unsuccessfully with return value 1."
+            << endl;
+
+       if (result)
+           mysql_free_result(result);
+
+       return 1;
+
+   }  /* |if (status != 0)|  */
+
+
+@q **** (4) @>
+
+#if DEBUG_COMPILE
+   else if (DEBUG)
+   {
+       cerr << "In `calc_hours':  `submit_mysql_query' succeeded, returning 0."
+            << endl
+            << "Retrieved rows from `ldf.Hours' database table successfully."
+            << endl
+            << "`row_ctr' == " << row_ctr
+            << endl 
+            << "`field_ctr' == " << field_ctr
+            << endl;
+
+   }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q **** (4) @>
+@
+@<|calc_hours| definition@>=
+
+   vector<Time_Spec_Type> time_spec_vector;
+
+   Time_Spec_Type curr_time_spec;
+
+   for (int i = 0; i < row_ctr; ++i)
+   {
+@q ***** (5) @>
+
+       curr_time_spec.clear();
+
+       if ((curr_row = mysql_fetch_row(result)) == 0)
+       {
+   
+           cerr << "ERROR!  In `calc_hours':"
+                << endl
+                << "`mysql_fetch_row' failed:"
+                << endl
+                << mysql_error(mysql_ptr)
+                << endl 
+                << "Exiting function unsuccessfully with return value 1."
+                << endl;
+   
+           mysql_free_result(result);
+
+           return 1;
+
+       }  /* |if (curr_row = mysql_fetch_row(result) == 0)|  */
+
+@q ***** (5) @>
+
+#if DEBUG_COMPILE
+       else if (DEBUG)
+       {
+           cerr << "In `calc_hours':"
+                << endl
+                << "`mysql_fetch_row' succeeded:"
+                << endl;
+
+#if 0 
+            for (int j = 0; j < field_ctr; ++j)
+            {
+                cerr << "`curr_row[" << j << "]'";
+
+                if (j < 10)
+                    cerr << " ";
+
+                cerr << " == " << curr_row[j] << endl;
+            }
+
+            cerr << endl;
+#endif 
+
+       }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+       status = curr_time_spec.set(curr_row, field_ctr);
+
+       if (status != 0)
+       {
+           cerr << "ERROR!  In `calc_hours':"
+                << endl
+                << "`Time_Spec_Type::set' failed, returning " << status << "."
+                << endl
+                << "Failed to set `curr_time_spec'."
+                << endl 
+                << "Exiting function unsuccessfully with return value 1."
+                << endl;
+   
+           mysql_free_result(result);
+
+           return 1;
+       }  
+#if DEBUG_COMPILE
+       else if (DEBUG)
+       {
+           cerr << "In `calc_hours':"
+                << endl
+                << "`Time_Spec_Type::set' succeeded, returning 0."
+                << endl;
+
+       }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q ***** (5) @>
+
+        time_spec_vector.push_back(curr_time_spec);
+
+   }  /* |for|  */
+
+@q **** (4) @>
+
+
+   mysql_free_result(result);
+   result = 0;
+
+@q **** (4) @>
+@
+@<|calc_hours| definition@>=
+
+#if DEBUG_COMPILE
+   if (DEBUG)
+   {
+       cerr << "`time_spec_vector.size()' == " << time_spec_vector.size() 
+            << endl;
+
+       if (time_spec_vector.size() > 0)
+          cerr << "`time_spec_vector':" << endl;
+
+   }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */     
+
+  float sum_week  = 0.0F;
+  float sum_month = 0.0F;
+
+  int prev_month = 0;
+  int prev_week  = 0;
+  int prev_day   = 0;
+
+  stringstream month_strm;
+  stringstream week_strm;
+  stringstream day_strm;
+
+  stringstream week_sum_strm;
+  stringstream month_sum_strm;
+
+  int box_ctr = 1;
+
+  FILE *fp = 0;
+
+  char buffer[1024];
+  memset(buffer, 0, 1024);
+
+  int curr_week = 0;
+
+  for (vector<Time_Spec_Type>::iterator iter = time_spec_vector.begin();
+       iter != time_spec_vector.end();
+       ++iter)
+  {
+@q ***** (5) @>
+
+#if DEBUG_COMPILE
+       if (DEBUG)
+       {
+           iter->show();
+           cerr << endl;
+
+       }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */     
+      
+@q ***** (5) @>
+
+       curr_week = iter->week;
+
+@q ****** (6) @>
+
+       if (iter->month != prev_month)
+       {
+@q ******* (7) @>
+
+#if DEBUG_COMPILE
+           if (DEBUG)
+           {
+              cerr << "Starting new month." << endl;
+
+           }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q ******* (7) @>
+
+           month_strm.str("");
+
+@q ******* (7) @>
+@
+\LOG
+\initials{LDF 2013.10.16.}
+Added this section.
+\ENDLOG
+
+@<|calc_hours| definition@>=
+
+@q ******** (8) @>
+          
+           temp_strm.str("");
+           temp_strm << iter->year << "-" << iter->month << "-1 00:00:00";
+
+#if 0 
+           cerr << "temp_strm.str() == " << temp_strm.str() << endl;
+#endif 
+
+           struct tm tm;
+           memset(&tm, 0, sizeof(struct tm));
+
+           char *temp_str = strptime(temp_strm.str().c_str(), "%F %T", &tm);
+
+           if (temp_str == 0)
+           {
+                cerr << "ERROR!  In `calc_hours':  `strptime' failed, returning NULL."
+                     << endl
+                     << "Failed to convert date string for beginning of month " 
+                     << month_name_map[iter->month] << " (" << iter->month << ")."
+                     << endl
+                     << "Exiting function unsuccessfully with return value 1."
+                     << endl;
+
+                return 1;
+
+           }  /* |if (temp_str == 0)|  */
+
+@q ******** (8) @>
+
+#if DEBUG_COMPILE
+           else if (DEBUG)
+           {
+                cerr << "In `calc_hours':  `strptime' succeeded:"
+                     << endl
+                     << "`tm.tm_year' == " << tm.tm_year
+                     << endl 
+                     << "`tm.tm_mon' == " << tm.tm_mon
+                     << endl;
+
+           }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+           temp_strm.str("");
+           temp_str = 0;
+
+@q ******** (8) @>
+
+           memset(buffer, 0, 1024);
+           status = strftime(buffer, 1024, "%m %u %V", &tm);
+
+           if (status == 0)
+           {
+                cerr << "ERROR!  In `calc_hours':  `strftime' failed, returning 0."
+                     << endl
+                     << "Failed to retrieve date/time info from `struct tm tm'."
+                     << endl
+                     << "Exiting function unsuccessfully with return value 1."
+                     << endl;
+
+                return 1;
+
+           }  /* |if (status == 0)|  */
+
+
+@q ******** (8) @>
+
+#if DEBUG_COMPILE
+           else if (DEBUG)
+           {
+                cerr << "In `calc_hours':  `strftime' succeeded:"
+                     << endl
+                     << "`buffer' == " << buffer
+                     << endl;
+
+           }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+
+
+@q ******** (8) @>
+@
+@<|calc_hours| definition@>=
+
+           time_t sse_month_end   = static_cast<time_t>(0);
+           int month_ctr = 0;
+           string month_name;
+           int first_day_of_week = 0;
+
+           temp_strm.str("");
+
+           temp_strm << buffer;
+           temp_strm.clear();
+
+           temp_strm >> month_ctr >> first_day_of_week >> first_week_num;
+
+           temp_strm.str("");
+           temp_strm.clear();
+
+           month_name = month_name_map[month_ctr];
+
+           if (first_day_of_week > 1)
+               partial_week_first = true;
+
+@q ******** (8) @>
+@
+\LOG
+@:BUG FIX@> BUG FIX:  Added code for handling the ``December'' case, i.e., 
+|iter->month + 1 == 12|.
+\ENDLOG 
+
+@<|calc_hours| definition@>=
+
+           temp_strm.str("");
+           temp_strm.clear();
+
+           if (iter->month + 1 < 12)
+              temp_strm << iter->year << "-"
+                        << ((iter->month + 1) % 12);
+           else
+              temp_strm << (iter->year + 1) << "-1-1 00:00:00";
+
+#if DEBUG_COMPILE
+           if (DEBUG)
+           {
+               cerr << "temp_strm.str() == " << temp_strm.str() << endl;
+
+           }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+           memset(&tm, 0, sizeof(struct tm));
+
+           temp_str = strptime(temp_strm.str().c_str(), "%F %T", &tm);
+
+           if (temp_str == 0)
+           {
+                cerr << "ERROR!  In `calc_hours':  `strptime' failed, returning NULL."
+                     << endl
+                     << "Failed to convert date string for beginning of following month " 
+                     << month_name_map[(iter->month + 1) % 12] << " "
+                     << "(";
+
+                if (iter->month + 1 < 12)
+                   cerr << ((iter->month + 1) % 12);
+                else 
+                   cerr << 12;
+
+                cerr << ")."
+                     << endl
+                     << "Exiting function unsuccessfully with return value 1."
+                     << endl;
+
+                return 1;
+
+           }  /* |if (temp_str == 0)|  */
+
+@q ******** (8) @>
+
+#if DEBUG_COMPILE
+           else if (DEBUG)
+           {
+                cerr << "In `calc_hours':  `strptime' succeeded:"
+                     << endl
+                     << "`tm.tm_year' == " << tm.tm_year
+                     << endl 
+                     << "`tm.tm_mon' == " << tm.tm_mon
+                     << endl;
+
+           }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+           temp_strm.str("");
+           temp_str = 0;
+
+@q ******** (8) @>
+
+           memset(buffer, 0, 1024);
+           status = strftime(buffer, 1024, "%s %m", &tm);
+
+           if (status == 0)
+           {
+                cerr << "ERROR!  In `calc_hours':  `strftime' failed, returning 0."
+                     << endl
+                     << "Failed to retrieve date/time info from `struct tm tm'."
+                     << endl
+                     << "Exiting function unsuccessfully with return value 1."
+                     << endl;
+
+                return 1;
+
+           }  /* |if (status == 0)|  */
+
+
+@q ******** (8) @>
+
+#if DEBUG_COMPILE
+           else if (DEBUG)
+           {
+                cerr << "In `calc_hours':  `strftime' succeeded:"
+                     << endl
+                     << "`buffer' == " << buffer
+                     << endl;
+
+           }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+
+@q ******** (8) @>
+@
+\LOG
+\initials{LDF 2013.10.18.}
+@:BUG FIX@> BUG FIX:  Now subtracting 3 hours in seconds from |sse_month_end|
+instead of 1 hour.  This ensures that we really get the previous day, i.e., 
+the last day of the previous month, even if the change to daylight savings time 
+occurs between these two days.
+\ENDLOG
+
+@<|calc_hours| definition@>=
+
+           temp_strm.str("");
+           temp_strm.clear();
+
+           temp_strm << buffer;
+
+           temp_strm.clear();
+
+           temp_strm >> sse_month_end;
+
+
+           temp_strm.str("");
+           temp_strm.clear();
+
+           sse_month_end -= (3 * 3600);  /* 3 hours  */
+
+           memset(&tm, 0, sizeof(struct tm));
+
+           if (localtime_r(&sse_month_end, &tm) == 0)
+           {
+                cerr << "ERROR!  In `calc_hours':  `localtime_r' failed, returning 0."
+                     << endl
+                     << "Exiting function unsuccessfully with return value 1."
+                     << endl;
+
+                return 1;
+
+           }  /* |if (localtime_r(&sse_month_end, &tm) == 0)|  */
+
+@q ******** (8) @>
+
+#if DEBUG_COMPILE
+           else if (DEBUG)
+           {
+                cerr << "In `calc_hours':  `localtime_r' succeeded:"
+                     << endl
+                     << "`tm.tm_mon' == " << tm.tm_mon
+                     << endl 
+                     << "`tm.tm_mday' == " << tm.tm_mday
+                     << endl;
+
+           }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q ******** (8) @>
+@
+@<|calc_hours| definition@>=
+
+           memset(buffer, 0, 1024);
+           status = strftime(buffer, 1024, "%d %u %V", &tm);
+
+           if (status == 0)
+           {
+                cerr << "ERROR!  In `calc_hours':  `strftime' failed, returning 0."
+                     << endl
+                     << "Failed to retrieve date/time info from `struct tm tm'."
+                     << endl
+                     << "Exiting function unsuccessfully with return value 1."
+                     << endl;
+
+                return 1;
+
+           }  /* |if (status == 0)|  */
+
+
+@q ******** (8) @>
+
+#if DEBUG_COMPILE
+           else if (DEBUG)
+           {
+                cerr << "In `calc_hours':  `strftime' succeeded:"
+                     << endl
+                     << "`buffer' == " << buffer
+                     << endl;
+
+           }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+           int last_day_of_month = 0;
+           int last_day_of_week  = 0;
+                    
+           temp_strm.str("");
+           temp_strm.clear();
+
+           temp_strm << buffer;
+
+           temp_strm.clear();
+
+           temp_strm >> last_day_of_month >> last_day_of_week >> last_week_num;
+
+#if DEBUG_COMPILE
+           if (DEBUG)
+           {
+                cerr << "In `calc_hours':  `last_day_of_month' == " << last_day_of_month
+                     << endl;
+
+           }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+           temp_strm.str("");
+           temp_strm.clear();
+
+           if (last_day_of_week < 5)
+               partial_week_last = true;          
+
+@q ******** (8) @>
+@
+@<|calc_hours| definition@>=
+
+
+
+@q ******** (8) @>
+@
+@<|calc_hours| definition@>=
+
+           
+#if DEBUG_COMPILE
+           if (DEBUG)
+           {
+               cerr << "month_ctr          == " << month_ctr << endl
+                    << "month_name         == " << month_name << endl
+                    << "first_day_of_week  == " << first_day_of_week << endl
+                    << "first_week_num     == " << first_week_num << endl
+                    << "last_day_of_month  == " << last_day_of_month << endl
+                    << "last_day_of_week   == " << last_day_of_week << endl
+                    << "last_week_num      == " << last_week_num << endl
+                    << "partial_week_first == " << partial_week_first << endl
+                    << "partial_week_last  == " << partial_week_last << endl;
+           }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+
+@q ******** (8) @>
+
+@q ******* (7) Format calendar for |iter->month|.  @>
+
+@ Format calendar for |iter->month|.
+\initials{LDF 2013.10.14.}
+
+@<|calc_hours| definition@>=
+
+           temp_strm.str("");
+           temp_strm.clear();
+
+           temp_strm << "%% ** (2) " << month_name << " " << iter->year
+                     << endl << endl 
+                     << "\\iffalse"
+                     << endl 
+                     << "    " << month_name << " " << iter->year 
+                     << endl
+                     << "Mo Di Mi Do Fr Sa So"
+                     << endl;
+           
+
+           month_strm << "\\setbox1=\\hbox{00\\thinspace}"
+                      << endl    
+                      << "\\setbox2=\\hbox{Mo\\thinspace}"
+                      << endl
+                      << "\\dimen0=\\wd1"
+                      << endl
+                      << "\\ifdim\\wd2 > \\wd1"
+                      << endl
+                      << "\\dimen0=\\wd2"
+                      << endl
+                      << "\\fi"
+                      << endl
+                      << endl   
+                      << "\\newbox\\calbox"
+                      << endl 
+                      << endl 
+                      << "\\setbox\\calbox=\\vbox{\\halign{&\\hbox to \\dimen0{\\hfil#}\\cr"
+                      << endl 
+                      << "\\multispan{7}{\\hfil " << month_name << " " << iter->year 
+                      << "\\hfil}\\cr"
+                      << endl 
+                      << "\\noalign{\\vskip1pt}"
+                      << endl 
+                      << "Mo& Di& Mi& Do& Fr& Sa& So\\cr"
+                      << endl 
+                      << "\\noalign{\\vskip1pt}"
+                      << endl;
+
+           int k = first_day_of_week;
+
+           for (int m = 1; m < k; ++m)
+           {
+              temp_strm << "   ";
+              month_strm << "  & ";
+           }
+
+           int curr_week_num = first_week_num;
+
+
+@q ******* (7) @>
+@
+@<|calc_hours| definition@>=        
+
+#if DEBUG_COMPILE
+           if (DEBUG)
+           {
+ 
+                cerr << "Filling `week_day_vector':"
+                     << endl;
+
+           }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q ******* (7) @>
+                          
+           for (int j = 1; j <= last_day_of_month; ++j, ++k)
+           {
+@q ******** (8) @>
+
+#if DEBUG_COMPILE
+               if (DEBUG)
+               {
+                   cerr << "j == " << j << endl
+                        << "k == " << k << endl;
+
+               }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q ******** (8) @>
+
+               if (k > 0 && k < 6)
+               {
+#if DEBUG_COMPILE
+                  if (DEBUG)
+                  {
+                     cerr << "Pushing `j' == " << j << " onto `week_day_vector'."
+                          << endl;
+                  }
+#endif  /* |DEBUG_COMPILE|  */ 
+
+                  hours_month_required += hours_per_day;
+                  ++work_days_month;
+                  week_day_vector.push_back(j);
+               }
+
+@q ******** (8) @>
+
+#if DEBUG_COMPILE
+               else if (DEBUG)
+               {
+                  cerr << "Not pushing `j' == " << j << " onto `week_day_vector'."
+                       << endl;
+               }
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q ******** (8) @>
+
+               temp_strm << setw(2) << j << " ";
+
+               month_strm << setw(2) << j << "& ";
+
+               if (k == 7)
+               {
+
+                   temp_strm << "  ;  KW " << curr_week_num;
+
+
+                   month_strm << "\\omit\\hskip1.5em KW " << curr_week_num;
+
+                   if (curr_week_num == first_week_num && partial_week_first == true)
+                   {
+                      month_strm << ", Teil 2";
+                      temp_strm  << ", Teil 2";
+                   }
+
+
+                   temp_strm << endl;
+                   month_strm << "\\hfil\\cr" << endl;
+
+                   k = 0;
+                   ++curr_week_num;
+               }
+
+@q ******** (8) @>
+
+           }  /* |for|  */
+
+           
+
+           for (int m = last_day_of_week + 1; m <= 7; ++m)
+           {
+               temp_strm << "   ";
+               month_strm << "  & ";
+           }
+ 
+           month_strm << "\\omit\\hskip1.5em KW " << curr_week_num;
+           temp_strm << "  ;  KW " << curr_week_num;
+
+           if (partial_week_last == true)
+           {
+                month_strm << ", Teil 1";
+                temp_strm  << ", Teil 1"; 
+           }           
+
+           month_strm << "\\hfil\\cr" << endl;
+           temp_strm << endl;
+ 
+@q ******* (7) @>
+
+           month_strm << "}}" << endl << endl;
+
+           temp_strm << endl << "\\fi" << endl << endl << "%% ** (2)" << endl << endl;
+
+#if DEBUG_COMPILE
+           if (DEBUG)
+           {
+               cerr << "temp_strm.str()  == " << endl << temp_strm.str()
+                    << endl 
+                    << "month_strm.str() == " << endl << month_strm.str() 
+                    << endl;
+
+           }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+           *out_strm << temp_strm.str() << month_strm.str();
+
+           *out_strm << "%% ** (2)" 
+                     << endl << endl 
+                     << "\\vskip2\\baselineskip"
+                     << endl << endl
+                     << "%% ** (2)" 
+                     << endl << endl
+                     << "\\setbox0=\\hbox{00,00}"
+                     << endl
+                     << "\\dimen0=\\ht0"
+                     << endl
+                     << "\\advance\\dimen0 by -1pt"
+                     << endl
+                     << "\\dimen1=\\wd0"
+                     << endl
+                     << "\\advance\\dimen1 by 3pt"
+                     << endl
+                     << endl;
+
+
+           month_strm.str("");
+           temp_strm.str("");
+
+@q ******* (7) @>
+@
+@<|calc_hours| definition@>=
+
+#if DEBUG_COMPILE
+       if (DEBUG)
+           {
+@q ******** (8) @>
+
+               cerr << "week_day_vector.size() == " << week_day_vector.size() << endl;
+
+               if (week_day_vector.size() > 0) 
+               {
+                   cerr << "`week_day_vector':"
+                        << endl;
+               }   
+
+               for (vector<int>::iterator iter = week_day_vector.begin();
+                    iter != week_day_vector.end();
+                    ++iter)
+               {
+                   cerr << *iter << endl;
+               }
+
+               cerr << endl;
+
+@q ******** (8) @>
+
+               cerr << "holiday_vector.size() == " << holiday_vector.size() << endl;
+
+               if (holiday_vector.size() > 0) 
+               {
+                   cerr << "`holiday_vector':" << endl;
+                   
+                    for (vector<int>::iterator iter = holiday_vector.begin();
+                         iter != holiday_vector.end();
+                         ++iter)
+                    {
+                       cerr << *iter << endl;
+                    }
+
+                    cerr << endl;
+               }
+
+@q ******** (8) @>
+
+               cerr << "sick_day_vector.size() == " << sick_day_vector.size() << endl;
+
+               if (sick_day_vector.size() > 0) 
+               {
+                   cerr << "`sick_day_vector':"
+                        << endl;
+               }   
+
+               for (vector<int>::iterator iter = sick_day_vector.begin();
+                    iter != sick_day_vector.end();
+                    ++iter)
+               {
+                   cerr << *iter << endl;
+               }
+
+               cerr << endl;
+
+
+@q ******** (8) @>
+@
+\LOG
+\initials{LDF 2013.10.24.}
+Added this section.
+\ENDLOG
+
+@<|calc_hours| definition@>=
+
+               cerr << "vacation_day_vector.size() == " << vacation_day_vector.size() << endl;
+
+               if (vacation_day_vector.size() > 0) 
+               {
+                   cerr << "`vacation_day_vector':"
+                        << endl;
+               }   
+
+               for (vector<int>::iterator iter = vacation_day_vector.begin();
+                    iter != vacation_day_vector.end();
+                    ++iter)
+               {
+                   cerr << *iter << endl;
+               }
+
+               cerr << endl;
+
+@q ******** (8) @>
+@
+@<|calc_hours| definition@>=
+
+           }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q ******* (7) @>
+@
+@<|calc_hours| definition@>=
+           
+           vector<int> temp_vector;
+           vector<int>::iterator temp_iter;
+
+           for (vector<int>::iterator atemp_iter = holiday_vector.begin();
+                atemp_iter != holiday_vector.end();
+                ++atemp_iter)
+           {
+                temp_iter = find(week_day_vector.begin(), week_day_vector.end(), *atemp_iter);
+     
+                if (temp_iter != week_day_vector.end())
+                   temp_vector.push_back(*atemp_iter);
+                else 
+                   cerr << "WARNING!  In `calc_hours':  "
+                        << *atemp_iter << " " << "is not a weekday (1)."
+                        << endl
+                        << "Removing from `holiday_vector'."
+                        << endl;
+
+           }
+           holiday_vector.clear();
+           holiday_vector = temp_vector;
+           temp_vector.clear();
+
+
+@q ******* (7) @>
+@
+@<|calc_hours| definition@>=
+           
+           temp_vector.clear();
+
+           for (vector<int>::iterator atemp_iter = vacation_day_vector.begin();
+                atemp_iter != vacation_day_vector.end();
+                ++atemp_iter)
+           {
+                temp_iter = find(week_day_vector.begin(), week_day_vector.end(), *atemp_iter);
+
+                if (temp_iter != week_day_vector.end())
+                {
+                    temp_iter = find(holiday_vector.begin(), holiday_vector.end(), *atemp_iter);
+
+                    if (temp_iter != holiday_vector.end())
+                    {
+                         cerr << "WARNING!  In `calc_hours':  "
+                              << *atemp_iter << " " << "is a holiday."
+                              << endl
+                              << "Removing from `vacation_day_vector'."
+                              << endl;
+
+                    }
+                    else
+                       temp_vector.push_back(*atemp_iter);
+                }
+                else 
+                   cerr << "WARNING!  In `calc_hours':  "
+                        << *atemp_iter << " " << "is not a weekday (2)."
+                        << endl
+                        << "Removing from `vacation_day_vector'."
+                        << endl;
+           }
+
+           vacation_day_vector.clear();
+           vacation_day_vector = temp_vector;
+           temp_vector.clear();
+
+
+@q ******* (7) @>
+@
+@<|calc_hours| definition@>=
+
+           for (vector<int>::iterator atemp_iter = sick_day_vector.begin();
+                atemp_iter != sick_day_vector.end();
+                ++atemp_iter)
+           {
+                temp_iter = find(week_day_vector.begin(), week_day_vector.end(), *atemp_iter);
+     
+                if (temp_iter != week_day_vector.end())
+                {
+                    temp_iter = find(holiday_vector.begin(), holiday_vector.end(), *atemp_iter);
+
+                    if (temp_iter != holiday_vector.end())
+                    {
+                         cerr << "WARNING!  In `calc_hours':  "
+                              << *atemp_iter << " " << "is a holiday."
+                              << endl
+                              << "Removing from `sick_day_vector'."
+                              << endl;
+
+                    }
+                    else
+                    {
+                          temp_iter = find(vacation_day_vector.begin(),
+                                           vacation_day_vector.end(),
+                                           *atemp_iter);
+
+                          if (temp_iter != vacation_day_vector.end())
+                          {
+                               cerr << "WARNING!  In `calc_hours':  "
+                                    << *atemp_iter << " " << "is a vacation day."
+                                    << endl
+                                    << "Removing from `sick_day_vector'."
+                                    << endl;
+
+                          }
+                          else     
+                             temp_vector.push_back(*atemp_iter);
+                    }
+                }
+                else 
+                   cerr << "WARNING!  In `calc_hours':  "
+                        << *atemp_iter << " " << "is not a weekday (3)."
+                        << endl
+                        << "Removing from `sick_day_vector'."
+                        << endl;
+
+           }
+
+           sick_day_vector.clear();
+           sick_day_vector = temp_vector;
+           temp_vector.clear();
+
+@q ******* (7) @>
+@
+@<|calc_hours| definition@>=
+
+#if DEBUG_COMPILE
+       if (DEBUG)
+           {
+@q ******** (8) @>
+
+               cerr << "holiday_vector.size() == " << holiday_vector.size() << endl;
+
+               if (holiday_vector.size() > 0) 
+               {
+                   cerr << "`holiday_vector':" << endl;
+                   
+                    for (vector<int>::iterator iter = holiday_vector.begin();
+                         iter != holiday_vector.end();
+                         ++iter)
+                    {
+                       cerr << *iter << endl;
+                    }
+
+                    cerr << endl;
+               }
+
+@q ******** (8) @>
+
+               cerr << "sick_day_vector.size() == " << sick_day_vector.size() << endl;
+
+               if (sick_day_vector.size() > 0) 
+               {
+                   cerr << "`sick_day_vector':"
+                        << endl;
+               }   
+
+               for (vector<int>::iterator iter = sick_day_vector.begin();
+                    iter != sick_day_vector.end();
+                    ++iter)
+               {
+                   cerr << *iter << endl;
+               }
+
+               cerr << endl;
+
+@q ******** (8) @>
+@
+\LOG
+\initials{LDF 2013.10.24.}
+Added this section.
+\ENDLOG
+
+@<|calc_hours| definition@>=
+
+               cerr << "vacation_day_vector.size() == " << vacation_day_vector.size() << endl;
+
+               if (vacation_day_vector.size() > 0) 
+               {
+                   cerr << "`vacation_day_vector':"
+                        << endl;
+               }   
+
+               for (vector<int>::iterator iter = vacation_day_vector.begin();
+                    iter != vacation_day_vector.end();
+                    ++iter)
+               {
+                   cerr << *iter << endl;
+               }
+
+               cerr << endl;
+
+
+
+
+@q ******** (8) @>
+
+           }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q ******* (7) @>
+@
+@<|calc_hours| definition@>=
+         
+           hours_month_required = hours_per_day
+                                  * (week_day_vector.size() - holiday_vector.size());
+
+#if DEBUG_COMPILE
+           if (DEBUG)
+           {
+               cerr << "hours_per_day           == " << hours_per_day 
+                    << endl
+                    << "week_day_vector.size() == " << week_day_vector.size() 
+                    << endl
+                    << "holiday_vector.size()  == " << holiday_vector.size() 
+                    << endl
+                    << "Difference              == " 
+                    << (week_day_vector.size() - holiday_vector.size()) 
+                    << endl 
+                    << "hours_month_required    == " << hours_month_required
+                    << endl;
+
+           }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */            
+
+@q ******* (7) @>
+@
+\LOG
+\initials{LDF 2013.12.05.}
+Added this section.
+\ENDLOG
+
+@<|calc_hours| definition@>=
+
+           {  /* Beginning of group  */
+@q ******** (8) @>
+
+               vector<int>::iterator iter_1; 
+
+@q ******** (8) @>
+
+               for (vector<int>::iterator iter_2 = week_day_vector.begin();
+                    iter_2 != week_day_vector.end();
+                    ++iter_2)
+               {
+                    iter_1 = find(holiday_vector.begin(), holiday_vector.end(), *iter_2);
+
+                    if (iter_1 != holiday_vector.end())
+                       continue;
+
+                    iter_1 = find(sick_day_vector.begin(), sick_day_vector.end(), *iter_2);
+
+                    if (iter_1 != sick_day_vector.end())
+                       continue;
+
+                    iter_1 = find(vacation_day_vector.begin(), vacation_day_vector.end(), *iter_2);
+
+                    if (iter_1 != vacation_day_vector.end())
+                       continue;
+
+                    work_day_set.insert(*iter_2); 
+
+               }
+
+@q ******** (8) @>
+
+#if DEBUG_COMPILE
+               if (DEBUG)
+               {
+                   cerr << "curr_tm_ptr->tm_mday == " << curr_tm_ptr->tm_mday << endl
+                        << "work_day_set.size() == " << work_day_set.size() << endl
+                        << "work_day_set:"
+                        << endl;
+
+                       for (set<int>::iterator iter_3 = work_day_set.begin();
+                            iter_3 != work_day_set.end();
+                            ++iter_3)
+
+                       {
+                           cerr << *iter_3 << " ";
+
+                       }
+
+                       cerr << endl;   
+ 
+               }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q ******** (8) @>
+@
+@<|calc_hours| definition@>=
+
+               for (set<int>::iterator iter_3 = work_day_set.begin();
+                    iter_3 != work_day_set.end();
+                    ++iter_3)
+
+               {
+#if DEBUG_COMPILE
+                   if (DEBUG)
+                   {
+                       cerr << *iter_3 << " ";
+
+                   }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+                   if (*iter_3 <= curr_tm_ptr->tm_mday)
+                      ++work_day_ctr;
+                   else
+                      break;
+
+               }
+       
+               hours_month_required_subtotal = hours_per_day * work_day_ctr;
+
+#if DEBUG_COMPILE
+               if (DEBUG)
+               {
+                   cerr << "`work_day_ctr'                == " << work_day_ctr 
+                        << endl
+                        << "hours_month_required          == " << hours_month_required
+                        << endl 
+                        << "hours_month_required_subtotal == " << hours_month_required_subtotal
+                        << endl;
+               }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q ******** (8) @>
+
+           }  /* End of group  */
+
+@q ******* (7) @>
+@
+@<|calc_hours| definition@>=
+
+           temp_strm.clear();
+           temp_strm.str("");
+
+           temp_strm << hours_per_day;
+
+           string atemp_str = temp_strm.str();
+
+           pos = atemp_str.find(".");
+           atemp_str.replace(pos, 1, ",");
+
+@q ******* (7) @>
+
+           if (percentage_hours == 100)
+           {
+               cerr << "ERROR!  In `calc_hours':  `percentage_hours' == 100." 
+                    << endl
+                    << "This case hasn't been programmed yet."
+                    << endl
+                    << "Exiting function unsuccessfully with return value 1."
+                    << endl;
+
+               return 1;
+                     
+           }  /* |if (percentage_hours == 100)|  */
+
+@q ******* (7) @>
+
+       }  /* |if (iter->month != prev_month)|  */
+
+@q ****** (6) @>
+
+       else
+       {
+#if DEBUG_COMPILE
+           if (DEBUG)
+           {
+              cerr << "Not starting new month." << endl;
+
+           }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+
+       }
+
+@q ****** (6) @>
+
+
+
+@q ****** (6) @>
+@
+@<|calc_hours| definition@>=
+
+       if (iter->week != prev_week)
+       {
+@q ******* (7) @>
+
+
+#if DEBUG_COMPILE
+           if (DEBUG)
+           {
+              cerr << "Starting new week." << endl
+                   << "`iter->day_of_week == " << iter->day_of_week
+                   << endl 
+                   << "`iter->day_of_week_str == " << iter->day_of_week_str
+                   << endl;
+
+           }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q ******* (7) @>
+
+
+
+           if (prev_week != 0)
+           {
+
+               @<Finish week@>@;@/
+
+           }  /* |if (prev_week != 0)|  */
+
+
+@q ******* (7) @>
+
+@ Start new week string.
+\initials{LDF 2013.10.14.}
+
+@<|calc_hours| definition@>=
+
+           week_strm.str("");
+
+           week_strm << "%% *** (3) KW " << iter->week;
+
+           if (prev_week == 0 && partial_week_first == true)
+              week_strm << ", Teil 2";
+
+           week_strm << endl << endl
+                     << "\\setbox" << box_ctr << "\\vtop{%" 
+                     << endl
+                     << "\\halign{#\\space&\\hfil#\\quad&\\hfil#--&#"
+                     << "\\quad&\\hfil#\\quad&Gesamtsumme:\\space#\\cr" 
+                     << endl 
+                     << "\\multispan{4}{{\\bf KW " << iter->week;
+
+           if (iter->week == first_week_num && partial_week_first == true)
+              week_strm << ", Teil 2";
+
+           week_strm << "}\\hfil}\\cr" 
+                     << endl 
+                     << "\\noalign{\\vskip.25\\baselineskip}"
+                     << endl;
+
+
+          week_sum_strm.str("");
+
+          week_sum_strm << "\\iffalse" << endl << "(+ " << endl;
+
+@q ******* (7) @>
+@        
+@<|calc_hours| definition@>=
+
+@q ******** (8) @>
+           
+           {
+@q ********* (9) @>
+
+               int j = iter->day - iter->day_of_week + MONDAY;
+
+               for (int i = MONDAY; i < FRIDAY; ++i, ++j)
+               {
+@q ********** (10) @>
+
+#if DEBUG_COMPILE
+                 if (DEBUG)          
+                 {
+                      cerr << "iter->day == " << iter->day << endl
+                           << "iter->day_of_week == " << iter->day_of_week << " == "
+                           << day_of_week_map[iter->day_of_week] << endl
+                           << "i == " << i << " == " << day_of_week_map[i] << endl
+                           << "j == " << j << endl;
+
+                 }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+                   if (j < 1)
+                      continue;
+
+                   if (iter->day_of_week > i && iter->day > j)
+                   {
+
+                       free_day_iter = find(holiday_vector.begin(), holiday_vector.end(), j);
+
+
+                       if (free_day_iter != holiday_vector.end())
+                       {
+                          free_day_str = "Feiertag";
+
+                       }
+                       else
+                       {
+
+                          free_day_iter = find(sick_day_vector.begin(), sick_day_vector.end(), j);
+
+                          if (free_day_iter != sick_day_vector.end())
+                          {
+                              free_day_str = "Krank";
+                          }
+                          else 
+                          {
+                             free_day_iter = find(vacation_day_vector.begin(), 
+                                                  vacation_day_vector.end(), 
+                                                  j);
+
+                             if (free_day_iter != vacation_day_vector.end())
+                                free_day_str = "Urlaub";
+                             else
+                                free_day_str = "Frei";
+                          }
+                       }
+
+                       temp_strm.str("");
+                       temp_strm << iter->year;
+
+                       week_strm << day_of_week_map[i] << ".&" 
+                                 << (iter->day - iter->day_of_week + i) 
+                                 << "." << iter->month 
+                                 << "." << temp_strm.str().substr(2) 
+                                 << "&\\omit \\quad " << free_day_str << "\\hfil&\\cr"
+                                 << endl;
+
+                   }   
+
+@q ********** (10) @>
+
+               }  /* |for|  */
+
+@q ********* (9) @>
+
+           }    
+
+
+@q ******* (7) @>
+  
+       }  /* |if (iter->week != prev_week)|  */
+
+@q ****** (6) @>
+
+       else
+       {
+#if DEBUG_COMPILE
+           if (DEBUG)
+           {
+              cerr << "Not starting new week." << endl;
+
+           }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+
+       }
+
+@q ****** (6) @>
+
+@q ***** (5) @>
+
+@q ****** (6) @>
+
+#if 0 
+       cerr << "iter->day == " << iter->day << endl;
+       cerr << "prev_day == " << prev_day << endl;
+#endif 
+
+       if (iter->day != prev_day)
+       {
+#if DEBUG_COMPILE
+           if (DEBUG)
+           {
+              cerr << "Starting new day.  `iter->day' == " << iter->day 
+                   << endl;
+
+           }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+
+@q ****** (6) @>
+@
+\LOG
+\initials{LDF 2013.10.16.}
+Added this section.
+\ENDLOG
+
+@<|calc_hours| definition@>=
+
+           if (iter->week == prev_week && iter->day_of_week > MONDAY && iter->day - prev_day > 1)
+           {
+
+               temp_strm.str("");
+               temp_strm << iter->year;
+
+               int j = iter->day_of_week - (iter->day - prev_day) + 1;
+
+               for (int i = prev_day + 1;
+                    i < iter->day;
+                    ++i, ++j)
+               {
+
+                    if (j == SUNDAY)
+                       continue;
+                    else if (j == SATURDAY)
+                       break;
+
+                    free_day_iter = find(holiday_vector.begin(), holiday_vector.end(), i);
+
+                    if (free_day_iter != holiday_vector.end())
+                    {
+                       free_day_str = "Feiertag";
+
+                    }
+                    else
+                    {
+                       free_day_iter = find(sick_day_vector.begin(), sick_day_vector.end(), i);
+
+                       if (free_day_iter != sick_day_vector.end())
+                       {
+                           free_day_str = "Krank";
+                       }
+                       else 
+                       {
+
+                          free_day_iter = find(vacation_day_vector.begin(), 
+                                               vacation_day_vector.end(), 
+                                               j);
+
+                          if (free_day_iter != vacation_day_vector.end())
+                             free_day_str = "Urlaub";
+                          else
+                             free_day_str = "Frei";
+                       }
+
+                    }
+
+                    week_strm << day_of_week_map[j] << ".&" 
+                              << i
+                              << "." << iter->month 
+                              << "." << temp_strm.str().substr(2) 
+                              << "&\\omit \\quad " << free_day_str << "\\hfil&\\cr"
+                              << endl;
+
+               }  /* |for|  */
+
+           }  /* |if (iter->day - prev_day > 1)|  */
+
+@q ****** (6) @>
+
+           day_strm.str("");
+
+           temp_strm.str("");
+           temp_strm << iter->year;
+
+           
+           day_strm << iter->day_of_week_str << ".&" << iter->day << "." << iter->month 
+                    << "." << temp_strm.str().substr(2) << "& ";
+
+           temp_strm.str("");
+
+#if DEBUG_COMPILE
+           if (DEBUG)
+           {
+              cerr << "day_strm.str() == " << day_strm.str()
+                   << endl;
+
+           }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+
+       }  /* |if (iter->day != prev_day)|  */
+
+@q ****** (6) @>
+
+       else
+       {
+#if DEBUG_COMPILE
+           if (DEBUG)
+           {
+              cerr << "Not starting new day." << endl;
+
+           }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+           day_strm << "\\omit&\\omit & ";
+
+
+       }
+
+       day_strm << setw(2) << setfill(' ') 
+                << iter->hour[0] << "." 
+                << setw(2) << setfill('0') << iter->minute[0];
+
+       if (round_to_minute == false)
+          day_strm << ":" << setw(2) << setfill('0') << iter->second[0];
+       
+       day_strm << "&"
+                << setw(2) << setfill('0') 
+                << iter->hour[1] << "." 
+                << setw(2) << setfill('0') 
+                << iter->minute[1];
+
+       if (round_to_minute == false)
+          day_strm << ":" << setw(2) << setfill('0') << iter->second[1];
+ 
+       day_strm << "& "
+                << iter->hour_diff_str
+                << "\\cr"
+                << endl;
+
+       week_sum_strm << "   " << fixed << setprecision(2) 
+                     << iter->hour_diff << endl;
+
+       week_strm << day_strm.str();
+       day_strm.str("");
+
+       temp_strm.str("");
+
+       temp_strm << fixed << setprecision(2) << iter->hour_diff;
+
+       temp_float_val = 0.0F;
+
+       temp_strm.clear(); 
+       temp_strm >> temp_float_val;
+
+       sum_week += temp_float_val;
+
+       temp_strm.str(""); 
+       temp_strm.clear();
+
+@q ****** (6) @>
+
+@q ***** (5) @>
+
+       prev_month = iter->month;
+       prev_week  = iter->week;
+       prev_day   = iter->day;
+
+@q ***** (5) @>
+
+  }  /* |for|  */
+
+  if (week_strm.str().size() > 0)
+  {
+     @<Finish week@>@;@/
+  }
+
+
+@q **** (4) @>
+@
+@<|calc_hours| definition@>=
+
+  result_strm << "\\dimen2=\\ht\\calbox"
+              << endl 
+              << endl 
+              << "\\line{\\box\\calbox\\hfil\\vbox to \\dimen2{\\vfil\\halign{#\\hfil&#"
+              << "\\space$=$\\space&\\hfil#&"
+              << "\\space#\\hfil&\\space#\\hfil\\cr"
+              << endl 
+              << "Regul{\\\"a}re Arbeitszeit (RAZ)&& " 
+              << replace_dec_point(hours_per_week_regular)
+              << "&Std.~pro Woche\\cr"
+              << endl 
+              << "$\\rm{RAZ}  \\times 0," << percentage_hours << "$"
+              << "&& " << replace_dec_point(hours_per_week)
+              << "& Std.~pro Woche& bei " << percentage_hours << "\\% RAZ\\cr"
+              << endl 
+              << "$(\\rm{RAZ} \\times 0," << percentage_hours << ") "
+              << "\\div 5$&& " << replace_dec_point(hours_per_day) 
+              << "& Std.~pro Tag& bei " << percentage_hours << "\\% RAZ\\cr"
+              << endl 
+              << "}\\vfil}}"
+              << endl 
+              << "%"
+              << endl 
+              << "\\vskip\\baselineskip"
+              << endl 
+              << "%"
+              << endl;
+
+  
+
+@q **** (4) @>
+@
+\LOG
+\initials{LDF 2013.12.04.}
+Now calling |format_vector|.
+\ENDLOG 
+
+@<|calc_hours| definition@>=
+
+  format_vector(month, free_day_strm, holiday_vector, "1 Feiertag", "Feiertage");
+
+@q **** (4) @>
+@
+\LOG
+\initials{LDF 2013.12.04.}
+Now calling |format_vector|.
+\ENDLOG 
+
+@<|calc_hours| definition@>=
+
+  format_vector(month, 
+                free_day_strm, 
+                sick_day_vector, 
+                "An einem Tag krank geschrieben", 
+                "Tagen krank geschrieben", 
+                "An ");
+
+
+@q **** (4) @>
+@
+\LOG
+\initials{LDF 2013.10.24.}
+Added this section.
+
+\initials{LDF 2013.12.04.}
+Now calling |format_vector|.
+\ENDLOG
+
+@<|calc_hours| definition@>=
+
+  format_vector(month, free_day_strm, vacation_day_vector, "1 Urlaubstag", "Urlaubstage");
+
+#if DEBUG_COMPILE
+  if (DEBUG)
+  {
+       cerr << "free_day_strm.str() == " << free_day_strm.str() << endl;
+
+  }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+@q **** (4) @>
+@
+@<|calc_hours| definition@>=
+
+  result_strm << "\\leftline{Sollstunden:  " 
+              << (week_day_vector.size() - holiday_vector.size()) << " "
+              << "Arbeitstage $\\times$ " << replace_dec_point(hours_per_day) << " "
+              << "Std.~pro Tag "
+              << "bei " << percentage_hours << "\\% Regul{\\\"a}rer Arbeitszeit (RAZ) "
+              << endl 
+              << "$=$ " << replace_dec_point(hours_month_required) << "}"
+              << endl 
+              << endl;
+
+  if (curr_tm_ptr->tm_mon + 1 == month && curr_tm_ptr->tm_mday != *work_day_set.rbegin())
+  {
+
+#if DEBUG_COMPILE
+       if (DEBUG)
+       {
+           cerr << "*work_day_set.rbegin() == " << *work_day_set.rbegin() << endl
+                << "curr_tm_ptr->tm_mon + 1 == " << curr_tm_ptr->tm_mon + 1 << endl
+                << "month == " << month << endl;
+
+
+       }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+       result_strm << "\\vskip.5\\baselineskip"
+                   << endl 
+                   << "\\leftline{Haben zum " << curr_tm_ptr->tm_mday << "." 
+                   << month << " $=$ " << replace_dec_point(sum_month) << " Std.~$-$ "
+                   << "Sollstunden f{\\\"u}r " << work_day_ctr << " Arbeitstage $=$ "
+                   << replace_dec_point(hours_month_required_subtotal) << " Std.~"
+                   << "$=$ "; 
+
+       if (sum_month - hours_month_required_subtotal < 0)
+           result_strm << "$-$";
+
+       result_strm << replace_dec_point(fabs(sum_month - hours_month_required_subtotal)) << " "
+                   << "Std.";
+
+       if (sum_month - hours_month_required_subtotal < 0)
+          result_strm << "~(Minus)";
+       else if (sum_month - hours_month_required_subtotal > 0)
+           result_strm << "~(Plus)";
+
+       result_strm << "}"
+                   << endl << endl;
+
+  }  /* |if|  */
+
+  result_strm << "\\vskip\\baselineskip"
+              << endl 
+              << endl;
+
+  if (free_day_strm.str().size() > 0)
+  {
+      result_strm << "\\halign{#:\\hfil\\quad&#\\hfil\\cr"
+                  << endl 
+                  << free_day_strm.str()
+                  << "}"
+                  << endl 
+                  << endl;
+  }
+
+  result_strm << "\\vskip\\baselineskip"
+              << endl
+              << endl 
+              << "\\newbox\\tempbox"
+              << endl 
+              << "\\setbox\\tempbox=\\hbox{$+$}"
+              << endl 
+              << endl 
+              << "\\halign{#:\\hfil\\quad& \\hfil #& \\space #\\cr"
+              << endl 
+              << "Arbeitsstunden (Haben)& " << replace_dec_point(sum_month) << "\\cr"
+              << endl 
+              << "{\\\"U}bertrag aus ";
+
+  if (month == 1)
+      result_strm << month_name_map[12] << " " << (year - 1);
+  else
+      result_strm << month_name_map[month - 1] << " " << year;
+
+  result_strm << "& " << replace_dec_point(overtime_prev_month);
+
+  if (overtime_prev_month == 0)
+     result_strm << "\\cr" << endl;
+  else if (overtime_prev_month > 0)
+     result_strm << "& $+$\\cr" << endl;
+  else 
+     result_strm << "& $-$\\cr" << endl;
+
+  
+
+  if (sick_day_vector.size() > 0)
+  {
+     result_strm << "Krank geschrieben& " 
+                 << replace_dec_point(sick_day_vector.size() * hours_per_day)
+                 << "& $+$\\cr"
+                 << endl;
+  }
+
+  if (vacation_day_vector.size() > 0)
+  {
+     result_strm << "Urlaub& " 
+                 << replace_dec_point(vacation_day_vector.size() * hours_per_day)
+                 << "& $+$\\cr"
+                 << endl;
+  }
+
+
+  result_strm << "Sollstunden& " << replace_dec_point(hours_month_required) 
+              << "& $-$\\cr"
+              << endl 
+              << "\\noalign{\\vskip-.25\\baselineskip}"
+              << endl 
+              << "\\omit& \\hfil\\hbox to 1cm{"
+              << "\\hskip-2pt\\vrule height 1pt width 1.25cm\\hss}\\cr"
+              << endl 
+              << "Summe& ";
+
+  if (sum_month + (sick_day_vector.size() * hours_per_day) 
+                + (vacation_day_vector.size() * hours_per_day)
+                +  overtime_prev_month
+                - hours_month_required < 0)
+     result_strm << "$-$";
+
+
+  result_strm << replace_dec_point(fabs(
+                   sum_month + (sick_day_vector.size() * hours_per_day) 
+                             + (vacation_day_vector.size() * hours_per_day) 
+                             + overtime_prev_month - hours_month_required)) 
+              << "& \\hbox to \\wd\\tempbox{"; 
+
+
+
+  
+  if (sum_month + (sick_day_vector.size() * hours_per_day) 
+                + (vacation_day_vector.size() * hours_per_day)
+                +  overtime_prev_month
+                - hours_month_required > 0)
+     result_strm << "(Plus)";
+  else 
+     result_strm << "(Minus)";
+
+  result_strm << "\\hss}\\cr}"
+              << endl 
+              << endl
+              << "\\vrule height 1pt width \\hsize"
+              << endl 
+              << endl;
+
+
+@q **** (4) @>
+@
+@<|calc_hours| definition@>=
+
+
+#if DEBUG_COMPILE
+   if (DEBUG)
+   {
+       cerr << "box_ctr == " << box_ctr << endl;
+
+   }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */   
+
+   int column_limit = (short_column == true) ? 3 : 4;
+   
+   if (!month_sum_strm.str().empty())
+   {
+       *out_strm << "%% Week totals:" 
+                 << endl 
+                 << endl 
+                 << "\\iffalse" 
+                 << endl
+                 << "(+" 
+                 << endl
+                 << month_sum_strm.str()
+                 << ")" 
+                 << endl 
+                 << "\\fi"
+                 << endl << endl;
+
+       month_sum_strm.str("");
+
+   }  /* |if (!month_sum_strm.str().empty())|  */
+
+   *out_strm << "%% Month total:"
+             << endl
+             << endl 
+             << "\\iffalse"
+             << endl
+             << "(-"
+             << endl 
+             << "  (+"
+             << endl
+             << "    " << setw(5) << fixed << setprecision(2) << sum_month 
+             << " ;; Sum month"
+             << endl
+             << "    " << setw(5) << fixed << setprecision(2) 
+             << overtime_prev_month << " ;; Overtime previous month"
+             << endl 
+             << "    " << setw(5) << fixed << setprecision(2) 
+             << (sick_day_vector.size() * hours_per_day) << " ;; Sick days"
+             << endl
+             << "    " << setw(5) << fixed << setprecision(2) 
+             << (vacation_day_vector.size() * hours_per_day) << " ;; Vacation days"
+             << endl 
+             << "  )"
+             << endl
+             << "  " 
+             << fixed << setprecision(2) << hours_month_required 
+             << "   ;; Required hours"
+             << endl 
+             << ")"
+             << endl 
+             << "\\fi"
+             << endl 
+             << endl;
+ 
+   if (box_ctr > 0 && box_ctr < 10)
+   {
+
+        *out_strm << "%% ** (2) Put boxes together"
+                  << endl << endl 
+                  << result_strm.str()  
+                  << endl << endl 
+                  << "\\vskip\\baselineskip"
+                  << endl << endl 
+                  << "\\skip0=1.5\\baselineskip"
+                  << endl << endl;
+
+        *out_strm  << "\\setbox" << box_ctr << "\\vbox to 0pt{";
+
+        for (int i = 1; i < column_limit && i < box_ctr; ++i)
+        {
+             
+            *out_strm << "\\box" << i << "\\vskip\\skip0" << endl;
+
+        }
+       
+        *out_strm << "\\vss}" << endl << endl;
+
+        if (box_ctr > column_limit)
+        {
+            ++box_ctr;
+            *out_strm  << "\\setbox" << box_ctr << "\\vbox to 0pt{";
+
+            for (int i = column_limit; i < 2 * column_limit && i < box_ctr - 1; ++i)
+            {
+                 
+                *out_strm << "\\box" << i << "\\vskip\\skip0" << endl;
+
+            }   
+
+            *out_strm << "\\vss}" << endl << endl;
+
+        }
+
+        if (box_ctr <= column_limit)
+           *out_strm  << "\\line{\\box" << box_ctr << "\\hss}"
+                      << endl << endl;
+        else
+           *out_strm  << "\\line{\\box" << (box_ctr - 1) << "\\hskip.25cm minus .75cm "
+                      << "\\box" << box_ctr << "}"
+                      << endl << endl;
+          
+
+   }  /* |if (box_ctr > 0)|  */
+
+
+@q **** (4) @>
+@
+@<|calc_hours| definition@>=
+
+
+#if DEBUG_COMPILE
+   if (DEBUG)
+   {
+       cerr << "Exiting `calc_hours' successfully with exit status 0." 
+            << endl;
+
+   }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */     
+
+
+
+   return 0;
+
+}  /* End of |calc_hours| definition   */
+
+
+@q *** (3) Finish week.  @>
+
+@ Finish week.  
+\initials{LDF 2013.10.14.}
+
+\LOG
+\initials{LDF 2013.10.14.}
+Added this section.
+\ENDLOG
+
+@<Finish week@>=
+
+   {  
+
+      string temp_str;
+
+      week_sum_strm << ")" 
+                    << endl 
+                    << ";; " << sum_week << " (Sum for week " << curr_week << ")"
+                    << endl 
+                    << "\\fi" << endl << endl;
+
+      week_strm << "\\multispan{4}{\\hfil}&\\vrule height " 
+                << "\\ht0 depth -\\dimen0 width\\dimen1\\cr"
+                << endl 
+                << "\\noalign{\\vskip-.5\\baselineskip}"
+                << endl  
+                << "\\multispan{3}{\\hfil}&\\omit{Summe:\\space}&";
+
+      month_sum_strm << "   " << fixed << setprecision(2) << sum_week << endl;
+
+      temp_strm.str("");
+
+      temp_strm << sum_week;
+
+      temp_str = temp_strm.str();
+
+      pos = temp_str.find(".");
+
+      temp_str.erase(pos, 1);
+      temp_str.insert(pos, ","); 
+
+      week_strm << temp_str;
+
+      if (sum_month > 0)
+      {
+           temp_strm.str("");
+
+           temp_strm << (sum_month + sum_week);
+
+           temp_str = temp_strm.str();
+
+           pos = temp_str.find(".");
+
+           temp_str.erase(pos, 1);
+           temp_str.insert(pos, ","); 
+
+           week_strm << "&" << temp_str;
+      }
+
+      week_strm << "\\cr"
+                << endl 
+
+      @q "{{" (This prevents Emacs from getting confused.)  LDF 2013.10.14.  @> 
+
+                << "}}"
+                << endl;
+
+      ++box_ctr;
+
+      *out_strm << week_strm.str() << endl << week_sum_strm.str();
+
+      week_strm.str("");
+      week_sum_strm.str("");
+
+      sum_month += sum_week;
+      sum_week = 0;
+      
+
+   }
+
+
+@q *** (3) Get seconds since the Epoch.  @>
+
+@ Get seconds since the Epoch.
+\initials{LDF 2013.05.15.}
+
+\LOG
+\initials{LDF 2013.05.15.}
+Added this function.
+\ENDLOG
+
+@q **** (4) Declaration  @>
+
+@<|get_seconds_since_epoch| declaration@>=
+int
+get_seconds_since_epoch(const char *timestamp, 
+                        time_t& sse, 
+                        string format_str = "%Y-%m-%d %H:%M:%S");
+
+@q **** (4) Definition  @>
+@
+@<|get_seconds_since_epoch| definition@>=
+int
+get_seconds_since_epoch(const char *timestamp, 
+                        time_t& sse, 
+                        string format_str)
+{
+
+   size_t status;
+
+   struct tm tm;
+ 
+   char buffer[16];
+   memset(buffer, 0, 16);
+
+   char *temp_str = strptime(timestamp, format_str.c_str(), &tm);
+
+   if (temp_str == 0)
+   {
+       cerr << "ERROR!  In `get_seconds_since_epoch':  `strptime' failed, returning NULL."
+            << endl
+            << "Exiting function unsuccessfully with return value 1."
+            << endl;
+
+       return 1;
+
+   }
+
+   status = strftime(buffer, 16, "%s", &tm);
+
+   if (status == 0)
+   {
+       cerr << "ERROR!  In `get_seconds_since_epoch':  `strftime' failed, returning 0."
+            << endl
+            << "Exiting function unsuccessfully with return value 1."
+            << endl;
+
+       return 1;
+
+   }
+
+   errno = 0;
+   unsigned long temp_val = strtoul(buffer, 0, 10);
+
+   if (temp_val == ULONG_MAX)
+   {
+       cerr << "ERROR!  In `get_seconds_since_epoch':  `strtoul' failed, returning `ULONG_MAX':"
+            << endl
+            << strerror(errno)
+            << endl 
+            << "Exiting function unsuccessfully with return value 1."
+            << endl;
+
+       return 1;
+
+   }
+
+   sse = temp_val;   
+
+   return 0;
+
+}  /* End of |get_seconds_since_epoch|  definition  */
+
+
+@q ** (2) @>
+
+@q ** (2) Submit SQL query. @>
+
+@ Submit SQL query.
+\initials{LDF 2013.10.11.}
+
+\LOG
+\initials{LDF 2013.10.11.}
+Added this function.
+\ENDLOG
+
+@q *** (3) Declaration  @>
+
+@<|submit_mysql_query| declaration@>=
+int
+submit_mysql_query(string query,
+                   MYSQL_RES*& result,
+                   MYSQL *&mysql_ptr,
+                   unsigned int *row_ctr = 0, 
+                   unsigned int *field_ctr = 0,
+                   long *affected_rows = 0);
+
+@q *** (3) Definition  @>
+@
+@<|submit_mysql_query| definition@>=
+
+int
+submit_mysql_query(string query,
+                   MYSQL_RES*& result, 
+                   MYSQL *&mysql_ptr,
+                   unsigned int *row_ctr, 
+                   unsigned int *field_ctr,
+                   long *affected_rows)
+{
+@q **** (4) @>
+
+     int status;
+     int DEBUG = false;  /* |true|  */
+
+     if (DEBUG)
+     {
+         cerr << "Entering `submit_mysql_query'."
+              << endl;
+
+     }  /* |if (DEBUG)|  */
+
+@q **** (4) @>
+
+    
+     if (affected_rows)
+        *affected_rows = 0L;
+
+@q **** (4) @>
+
+     status = mysql_query(mysql_ptr, query.c_str());
+
+@q **** (4) @>
+
+     if (status != 0)
+     {
+
+         cerr << "ERROR!  In `submit_mysql_query':"
+              << endl 
+              << "`mysql_query' failed, returning " << status << ":"
+              << endl 
+              << "Error:  " << mysql_error(mysql_ptr)
+              << endl 
+              << "Error number:  " << mysql_errno(mysql_ptr)
+              << endl 
+              << "Exiting function unsuccessfully with return value 1." 
+              << endl;
+
+         return 1;
+         
+     }  /* |if| (|mysql_query| failed.)  */
+
+@q **** (4) @>
+
+        result = mysql_store_result(mysql_ptr);        
+
+        if (result == 0)
+        {
+            if (row_ctr)
+            {
+
+                cerr << "WARNING!  In `submit_mysql_query':"
+                     << endl 
+                     << "`mysql_store_result' returned " << result
+                     << endl
+                     << mysql_error(mysql_ptr)
+                     << endl 
+                     << "Exiting function with return value 0."
+                     << endl;
+
+  
+                return 0;
+
+            }  /* |if (row_ctr)|  */
+           
+            else if (DEBUG) 
+            {
+
+                cerr << "In `submit_mysql_query':"
+                     << endl 
+                     << "`mysql_store_result' returned 0."
+                     << endl;
+
+            }  /* |if (DEBUG)| */
+
+            
+        }  /* |if| (No result)  */
+
+@q **** (4) @>
+
+        if (row_ctr == 0 || field_ctr == 0)
+        {
+            if (DEBUG) 
+            {
+
+                cerr << "In `submit_mysql_query':"
+                     << endl 
+                     << "`row_ctr' and/or `field_ctr' is NULL."
+                     << endl 
+                     << "Not storing rows or columns returned."
+                     << endl;
+
+            }  /* |if (DEBUG)| */
+
+
+        }   /* |if (row_ctr == 0 || field_ctr == 0)| */
+
+@q **** (4) @>
+
+        else
+        {
+            *row_ctr   = mysql_num_rows(result);
+            *field_ctr = mysql_num_fields(result);
+
+            if (DEBUG)
+            {
+
+                cerr << "In `submit_mysql_query':"
+                     << endl 
+                     << "`*row_ctr' == " << *row_ctr 
+                     << endl
+                     << "`*field_ctr' == " << *field_ctr 
+                     << endl;
+
+            }  /* |if (DEBUG)|  */
+
+        }  /* |else|  */
+
+@q **** (4) @>
+@
+\LOG
+\initials{LDF 2012.04.30.}
+Added this section.
+\ENDLOG
+
+@<|submit_mysql_query| definition@>=
+
+        if (affected_rows != 0)
+        {
+            *affected_rows = (long) mysql_affected_rows(mysql_ptr);
+
+            if (DEBUG)
+            {
+
+                cerr << "In `submit_mysql_query':"
+                     << "`*affected_rows' == " << *affected_rows
+                     << endl;
+
+            }  /* |if (DEBUG)|  */
+
+        }  /* |if (affected_rows != 0)|  */
+
+@q **** (4) @>
+@
+@<|submit_mysql_query| definition@>=
+
+     if (DEBUG)
+     {
+
+         cerr << "Exiting `submit_mysql_query' "
+              << "successfully with return value 0."
+              << endl;
+
+     }  /* |if (DEBUG)|  */
+
+@q **** (4) @>
+@
+@<|submit_mysql_query| definition@>=
+
+     return 0;
+
+@q **** (4) @>
+
+}  /* End of |submit_mysql_query|  */
+
+@q ** (2) |set_days_vector|.  @>
+@ |set_days_vector|.  
+\initials{LDF 2013.10.17.}
+
+\LOG
+\initials{LDF 2013.10.17.}
+Added this function.
+
+\initials{LDF 2013.10.18.}
+Renamed this function from |get_holidays| to |set_days_vector|.  Added 
+|const string &days_str| argument.
+\ENDLOG
+
+@q *** (3) Declaration  @>
+
+@<|set_days_vector| declaration@>=
+int
+set_days_vector(const string &days_str, vector<int> &days_vector);
+
+@q *** (3) Definition  @>
+@
+@<|set_days_vector| definition@>=
+int
+set_days_vector(const string &days_str, vector<int> &days_vector)
+{
+@q **** (4) @>
+
+   bool DEBUG = false;  /* |true|  */
+
+#if DEBUG_COMPILE
+   if (DEBUG)
+   {
+       cerr << "Entering `set_days_vector'." 
+            << endl
+            << "`days_str' == " << days_str
+            << endl;
+
+   }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */   
+
+@q **** (4) @>
+@
+@<|set_days_vector| definition@>=
+
+   int prev_holiday = 0;
+   int curr_holiday = -1;
+
+   stringstream temp_strm(days_str);
+
+   string temp_str = days_str;
+
+#if 0 
+   cerr << "`temp_strm.str()' == " << temp_strm.str() << endl;
+#endif 
+
+   size_t pos;
+
+@q **** (4) @>
+
+   const bool LIST  = false;
+   const bool RANGE = true;
+
+   bool list_or_range;
+
+   while (temp_strm.str().size() > 0)
+   {
+@q ***** (5) @>
+
+      temp_strm >> curr_holiday;
+
+      if (curr_holiday == -1)
+      {
+          cerr << "ERROR!  In `set_days_vector':  Failed to read integer from `holiday_str'."
+               << endl
+               << "Exiting function unsuccessfully with return value 1."
+               << endl;
+
+          return 1;
+      }
+
+@q ***** (5) @>
+@
+@<|set_days_vector| definition@>=
+
+      else if (curr_holiday < 1 || curr_holiday > 31)
+      {
+          cerr << "ERROR!  In `set_days_vector':  `curr_holiday' has invalid value:  " 
+               << curr_holiday << " (< 1 or > 31)."
+               << endl
+               << "Exiting function unsuccessfully with return value 1."
+               << endl;
+
+          return 1;
+
+      }  /* |else if|  */
+   
+@q ***** (5) @>
+
+#if DEBUG_COMPILE
+      else if (DEBUG)
+      {
+          cerr << "curr_holiday      == " << curr_holiday << endl
+               << "`temp_strm.str()' == " << temp_strm.str() << endl;
+
+      }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */    
+
+@q ***** (5) @>
+@
+@<|set_days_vector| definition@>=
+
+      if (curr_holiday > 9)
+         temp_str.erase(0, 2);
+      else
+         temp_str.erase(0, 1);
+   
+@q ***** (5) @>
+
+#if DEBUG_COMPILE
+      if (DEBUG)
+      {
+          cerr << "`temp_str' == " << temp_str << endl;
+
+      }  /* |else if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */    
+
+
+@q ***** (5) @>
+@
+@<|set_days_vector| definition@>=
+ 
+      if (prev_holiday == 0)
+         days_vector.push_back(curr_holiday);  
+
+      else if (prev_holiday > 0 && list_or_range == LIST)
+         days_vector.push_back(curr_holiday);        
+
+      else if (prev_holiday > 0 && list_or_range == RANGE)
+      {
+         for (int i = prev_holiday + 1; i <= curr_holiday; ++i)
+            days_vector.push_back(i);        
+      }
+
+@q ***** (5) @>
+
+      if (temp_str.size() > 0)
+      {
+          if (temp_str[0] == ',')
+          {
+             list_or_range = LIST;
+          }
+          else if (temp_str[0] == '-')
+          {
+             list_or_range = RANGE;
+          }
+      }
+      else
+      {
+#if DEBUG_COMPILE
+         if (DEBUG)
+         {
+             cerr << "Reached end of `days_str'.  Breaking." 
+                  << endl;
+
+         }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+          break;
+
+      }
+
+      pos = temp_str.find_first_of("123456789");
+
+      if (pos == string::npos)
+      {
+          cerr << "ERROR!  In `set_days_vector':  Failed to read integer from `holiday_str'."
+               << endl
+               << "Exiting function unsuccessfully with return value 1."
+               << endl;
+
+          return 1;
+      }      
+
+      else 
+          temp_str.erase(0, pos);
+
+#if 0 
+      cerr << "After erase:  temp_str == " << temp_str << endl;
+#endif 
+
+
+      temp_strm.str("");
+      temp_strm.clear();
+
+      temp_strm << temp_str;
+
+      temp_strm.clear();
+
+      prev_holiday = curr_holiday;      
+
+      curr_holiday == -1;
+
+@q ***** (5) @>
+
+   }  /* |while|  */
+
+@q **** (4) @>
+@
+@<|set_days_vector| definition@>=
+
+
+#if DEBUG_COMPILE
+   if (DEBUG)
+   {
+       cerr << "Exiting `set_days_vector' successfully with return value 0." 
+            << endl;
+
+   }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */   
+
+  
+    return 0;
+
+@q **** (4) @>
+
+}  /* End of |set_days_vector| definition  */
+
+@q ** (2) |replace_dec_point|.  @>
+
+@ |replace_dec_point|.  
+\initials{LDF 2013.10.18.}
+
+\LOG
+\initials{LDF 2013.10.18.}
+Added this function.
+\ENDLOG
+
+@<|replace_dec_point| declaration@>=
+string
+replace_dec_point(float f, char c = ',');
+
+@
+@<|replace_dec_point| definition@>=
+string
+replace_dec_point(float f, char c)
+{
+    stringstream temp_strm;
+
+    string temp_str;
+
+    temp_strm << fixed << setprecision(2) << f;
+
+    temp_str = temp_strm.str();
+
+    size_t pos = temp_str.find(".");
+
+    if (pos != string::npos)
+      temp_str.replace(pos, 1, 1, c);
+
+    return temp_str;
+
+    
+}  /* End of |replace_dec_point| definition  */
+
+@q ** (2) Format vector (|format_vector|).  @>
+@ Format vector (|format_vector|).  
+\initials{LDF 2013.12.04.}
+
+\LOG
+\initials{LDF 2013.12.04.}
+Added this function.
+\ENDLOG
+
+@q *** (3) Declaration @>
+
+@<|format_vector| declaration@>=
+int
+format_vector(int month,
+              stringstream &curr_strm, 
+              vector<int> day_vector, 
+              string str_1, 
+              string str_2, 
+              string str_3 = "");
+
+
+@q *** (3) Definition  @>
+@
+@<|format_vector| definition@>=
+int
+format_vector(int month,
+              stringstream &curr_strm, 
+              vector<int> day_vector, 
+              string str_1, 
+              string str_2, 
+              string str_3)
+{
+@q *** (3) @>
+
+     bool DEBUG = false;  /* |true|  */
+
+     string comma_str  = "";
+
+     int prev_day = 0;
+     int curr_day = 0;
+     int next_day = 0;
+
+     int range_start  = 0;
+     bool range_flag  = false;
+
+     if (day_vector.size() > 0)
+     {
+
+        if (day_vector.size() == 1)
+           curr_strm << str_1 << "& ";
+        else
+           curr_strm << str_3 << day_vector.size() << " " << str_2 << "& ";
+
+        vector<int>::iterator iter = day_vector.begin();
+        curr_day = *iter++;
+
+@q *** (3) @>
+
+        for (;
+             iter != day_vector.end();
+             ++iter)
+        {
+@q **** (4) @>
+
+#if DEBUG_COMPILE
+            if (DEBUG)
+            {
+                cerr << "prev_day == " << prev_day << endl
+                     << "curr_day == " << curr_day << endl
+                     << "next_day == " << next_day << endl;
+        
+
+            }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */          
+
+            next_day = *iter;
+
+            if (prev_day == 0 && next_day > curr_day + 1)
+            {
+                curr_strm << curr_day << "." << month << ".";
+                comma_str = ", ";
+            }
+            else if (prev_day == 0 && next_day == curr_day + 1)
+            {
+                range_flag = true;
+                range_start = curr_day;
+            }
+            else if (range_flag == false && next_day == curr_day + 1)
+            {
+                range_flag = true;
+                range_start = curr_day;
+            }
+            else if (range_flag == false && next_day > prev_day + 1)
+            {
+                curr_strm << comma_str 
+                          << curr_day << "." << month << ".";
+                comma_str = ", ";
+
+            }    
+            else if (range_flag == true && next_day == curr_day + 1)
+            {
+              /* Do nothing  */
+            }
+            else if (   range_flag == true 
+                  && next_day > curr_day + 1)
+            {
+                curr_strm << comma_str 
+                          << range_start << ".--" << curr_day << "." 
+                          << month << ".";
+                range_start = 0;
+                range_flag = false;
+                comma_str = ", ";
+            }
+            else
+            {
+#if DEBUG_COMPILE
+                if (DEBUG)
+                {
+                    cerr << "Other case:  range_flag == " << range_flag << endl;
+
+                }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */                           
+            }
+
+            prev_day = curr_day;
+            curr_day = next_day;
+
+@q **** (4) @>
+
+        }  /* |for|  */
+
+@q *** (3) @>
+
+        if (range_flag == true)
+            curr_strm << comma_str << range_start << ".--" 
+                      << curr_day << "." << month << ".";
+        else 
+            curr_strm << comma_str << curr_day << "." << month << ".";
+
+        curr_strm << "\\cr" << endl;
+
+     }  /* |if (day_vector.size() > 0)|  */
+
+@q *** (3) @>
+
+}  /* End of |format_vector| definition  */
+
+
+
+
+
+
+@q ** (2) Garbage@>
+
+@ Garbage.  This section needs to exist, because it's included below.
+It can be used for temporarily (or permanently) commenting-out code.
+\initials{LDF 2013.09.05.}
+
+@<Garbage@>=
+#if 0
+   /* Empty  */
+#endif 
+
+
+@q ** (2) This is what's compiled.  @>
+
+@ This is what's compiled.  
+\initials{LDF 2013.09.03.}
+
+@c
+using namespace std;
+@<Include files@>@;@/
+extern map<string, int> month_map;
+extern map<int, string> day_of_week_map;
+extern map<int, string> month_name_map;
+extern ostream *out_strm;
+extern bool round_to_minute;
+
+extern float hours_per_week_regular;
+extern int percentage_hours;
+extern float hours_per_week;
+extern float hours_per_day;
+extern int work_days_month;
+
+extern float hours_month_required;
+extern float hours_month_worked;
+extern float overtime_prev_month;
+extern bool short_column;
+
+extern const int SUNDAY;
+extern const int MONDAY;
+extern const int TUESDAY;
+extern const int WEDNESDAY;
+extern const int THURSDAY;
+extern const int FRIDAY;
+extern const int SATURDAY;
+
+@<|submit_mysql_query| declaration@>@;@/
+@<|replace_dec_point| declaration@>@;@/
+@<|format_vector| declaration@>@;@/
+
+@<|calc_hours| definition@>@;@/
+@<|get_seconds_since_epoch| definition@>@;@/
+@<|submit_mysql_query| definition@>@;@/
+@<|set_days_vector| definition@>@;@/
+@<|replace_dec_point| definition@>@;@/
+@<|format_vector| definition@>@;@/
+
+@q ** (2) This is what's written to the header file `calchrs01.h'.  @>
+
+@ This is what's written to the header file \filename{calchrs01.h}.  
+\initials{LDF 2013.09.05.}
+
+@(calchrs01.h++@>=
+#ifndef CALCHRS01_H
+#define CALCHRS01_H
+@<|calc_hours| declaration@>@;@/
+@<|get_seconds_since_epoch| declaration@>@;@/
+@<|submit_mysql_query| declaration@>@;@/
+@<|set_days_vector| declaration@>@;@/
+@<|replace_dec_point| declaration@>@;@/
+@<|format_vector| declaration@>@;@/
+#endif 
+
+#if 0 
+@<Garbage@>@;@/
+#endif 
+
+@q (progn (cweb-mode) (outline-minor-mode))                                @>
+
+@q * (1) Local variables for Emacs @>
+
+@q * Local variables for Emacs.@>
+@q Local Variables: @>
+@q mode:CWEB @>
+@q eval:(display-time) @>
+@q abbrev-mode:t @>
+@q eval:(read-abbrev-file) @>
+@q indent-tabs-mode:nil @>
+@q eval:(outline-minor-mode) @>
+@q fill-column:80 @>
+@q End: @>

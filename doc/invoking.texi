@@ -1,0 +1,24 @@
+@c invoking.texi
+@c Created by Laurence D. Finston (LDF) Thu Oct 17 19:17:03 CEST 2013
+
+@c This file is part of the calchours User and Reference Manual.
+@c Copyright (C) 2013, 2014 Laurence D. Finston
+@c See the section "GNU Free Documentation License" in the file 
+@c fdl.texi for copying conditions.
+
+@c * (1) Invoking
+
+@node  Invoking, , Introduction, Top
+@chapter Invoking
+
+@c ** (2)
+
+@c * (1)
+
+@c Local Variables:
+@c mode:Texinfo
+@c abbrev-mode:t
+@c eval:(outline-minor-mode t)
+@c outline-regexp:"@c *\\*+"
+@c eval:(set (make-local-variable 'run-texi2dvi-on-file) "gwrdifpk.texi")
+@c End:
