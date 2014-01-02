@@ -58,17 +58,17 @@ show tables;
 
 use mysql;
 
-use ldf;
+use calchours;
 
-/* ** (2)  Database `ldf'  */ 
+/* ** (2)  Database `calchours'  */ 
 
-create database ldf;
+create database calchours;
 
-grant all on ldf to lfinsto;
+grant all on calchours to <user>;
 
-use ldf;
+use calchours;
 
--- drop database ldf;
+-- drop database calchours;
 
 /* ** (2)  Create tables.  */
 
