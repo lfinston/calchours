@@ -1,0 +1,25 @@
+#### .gitignore
+#### Created by Laurence D. Finston (LDF) Wed Oct 16 13:48:32 CEST 2013
+
+.deps/
+autom4te.cache/
+*~
+Makefile.in
+aclocal.m4
+calchr00
+calchr00.o
+config.h
+config.h.in
+config.log
+config.status
+configure
+depcomp
+.git
+install-sh
+Makefile
+missing
+stamp-h1
+ylwrap
+
+
+
