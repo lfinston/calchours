@@ -528,8 +528,13 @@ Added this section.
 @q ******** (8) @>
 @
 \LOG
+\initials{LDF Undated.}
 @:BUG FIX@> BUG FIX:  Added code for handling the ``December'' case, i.e., 
 |iter->month + 1 == 12|.
+
+\initials{LDF 2014.01.02.}
+@:BUG FIX@> BUG FIX:  Added code for the ``non-December'' case.  
+I had forgotten to insert the day of the month and the time into |temp_strm|.
 \ENDLOG 
 
 @<|calc_hours| definition@>=
@@ -539,7 +544,7 @@ Added this section.
 
            if (iter->month + 1 < 12)
               temp_strm << iter->year << "-"
-                        << ((iter->month + 1) % 12);
+                        << ((iter->month + 1) % 12) << "-1 00:00:00";
            else
               temp_strm << (iter->year + 1) << "-1-1 00:00:00";
 
