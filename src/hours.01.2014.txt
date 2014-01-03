@@ -1,3 +1,26 @@
+#### hours.01.2014.txt
+
+#### date +%V  #### ISO week number, with Monday as first day of week (01..53)
+#### (progn (shell-command "date +%V") (sit-for 3))
+
+####      Januar 2014       
+#### Mo Di Mi Do Fr Sa So   
+####        1  2  3  4  5  # KW 1, Teil 2     
+####  6  7  8  9 10 11 12  # KW 2
+#### 13 14 15 16 17 18 19  # KW 3
+#### 20 21 22 23 24 25 26  # KW 4
+#### 27 28 29 30 31        # KW 5
+#### 			   # KW 6
+
+#### KW 1
+
 Fri Jan  3 12:29:43 CET 2014
 Fri Jan  3 13:29:45 CET 2014
+
+## Local Variables:
+## comment-start:"#"
+## End:
+
+
+
 
