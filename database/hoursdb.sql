@@ -60,11 +60,11 @@ use mysql;
 
 use calchours;
 
-/* ** (2)  Database `calchours'  */ 
+/* ** (2)  Database calchours'  */ 
 
 create database calchours;
 
-grant all on calchours to <user>;
+grant all on calchours to lfinsto;
 
 use calchours;
 

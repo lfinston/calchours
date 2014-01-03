@@ -207,7 +207,7 @@ calc_hours(MYSQL *&mysql_ptr,
    {
        cerr << "ERROR!  In `calc_hours':  `submit_mysql_query' failed, returning " << status << "."
             << endl
-            << "Failed to retrieve rows from `ldf.Hours' database table."
+            << "Failed to retrieve rows from `calchours.Hours' database table."
             << endl
             << "Exiting function unsuccessfully with return value 1."
             << endl;
@@ -227,7 +227,7 @@ calc_hours(MYSQL *&mysql_ptr,
    {
        cerr << "In `calc_hours':  `submit_mysql_query' succeeded, returning 0."
             << endl
-            << "Retrieved rows from `ldf.Hours' database table successfully."
+            << "Retrieved rows from `calchours.Hours' database table successfully."
             << endl
             << "`row_ctr' == " << row_ctr
             << endl 

@@ -110,7 +110,7 @@ run-all: calchours$(EXEEXT)
 # 20 also vacation
 
 run: calchours
-	calchours --out=out.tex --overtime 2.09 --vacation 9-13,20,23,30 --holiday 24-26,31 --round 12 2013 
+	calchours --out=out.tex --holiday 1 --overtime 1.41 --round 1 2014 
 	tex out.tex
 
 #### *** (3) run-r
@@ -127,8 +127,8 @@ run-r: calchours$(EXEEXT)
 .PHONY: run-11
 
 run-11: calchours$(EXEEXT)
-	echo "delete from ldf.Hours where start >= '2013-11-01 00:00:00'" | \
-           mysql --user=root --password=root ldf
+	echo "delete from calchours.Hours where start >= '2013-11-01 00:00:00'" | \
+           mysql --user=root --password=root calchours
 	calchours -i=hours.11.2013.txt --out=out_11.tex --overtime 9.83 --vacation 4-15 --round 11 2013 
 	tex out_11.tex
 
@@ -137,9 +137,9 @@ run-11: calchours$(EXEEXT)
 .PHONY: run-i
 
 run-i: calchours$(EXEEXT)
-	echo "delete from ldf.Hours where start >= '2013-12-01 00:00:00'" | \
-           mysql --user=root --password=root ldf
-	calchours -i=hours.12.2013.txt
+	echo "delete from calchours.Hours where start >= '2014-01-01 00:00:00'" | \
+           mysql --user=root --password=root calchours
+	calchours -i=hours.01.2014.txt
 
 #### *** (3) scanner
 
@@ -188,7 +188,7 @@ query:
 
 # @echo "select start, end, unix_timestamp(start) as 'start SSE', " \
 #      "unix_timestamp(end) as 'end SSE' from Hours order by start\G" | \
-#      mysql --user=root --password=root ldf
+#      mysql --user=root --password=root calchours
 
 #### *** (3) clean and purge
 
