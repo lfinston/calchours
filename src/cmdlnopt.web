@@ -930,15 +930,28 @@ Added this section.
                  << "--round-to-minute                 Output only:  "
                  << "Round time values to nearest minute"
                  << endl 
+                 << "--database-username STRING        Default: \"root\""
                  << endl 
-                 << "Arguments (optional):"
+                 << "--database-password STRING        Default: \"root\" (Not a good choice!)"
+                 << endl 
+                 << "   PLEASE NOTE:  As of 2014.01.07., no particular security measures"
+                 << endl 
+                 << "   are in place to protect the MySQL password!  "
+                 << "   It will appear in plain text form"
+                 << endl 
+                 << "   on the terminal and in the `/proc/[PROCESS ID]/cmdline' file, "
+                 << "it may be logged, etc."
+                 << endl
+                 << "   USE `calchours' AT YOUR OWN RISK!"
+                 << endl 
+                 << endl 
+                 << "Additional arguments (optional, without keywords):"
                  << endl 
                  << "MONTH                             Default:  current month.  "
-                 << "Will cause output to be produced."
+                 << "Will cause output to be produced, if specified."
                  << endl 
                  << "YEAR                              Default:  current year  "
                  << endl;
-
 
             exit(0);
 
