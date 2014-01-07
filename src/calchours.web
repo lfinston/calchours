@@ -123,7 +123,7 @@
    float hours_month_worked     = 0.0F;
    int work_days_month          = 0;
 
-   string employee_name = "Laurence Finston";
+   string employee_name = "John Smith";  /* Default value  */
 
    bool short_column = false; 
 
@@ -136,6 +136,12 @@
    extern const int THURSDAY  = 5;
    extern const int FRIDAY    = 6;
    extern const int SATURDAY  = 7;
+
+   /* Default values.  |"root"| is {\it not\/} a good value for the password!
+      \initials{LDF 2014.01.07.}  */
+
+   string database_username = "root";
+   string database_password = "root";
 
 @q ** (2) Main.  @>
 @ Main (|main|).
@@ -978,10 +984,6 @@ Added this section.
 @
 @<Main@>=
 
-     string temp_str;
-
-     temp_str = "root";
-
      my_bool reconnect    = 1;
      unsigned int timeout = 120;
 
@@ -999,8 +1001,8 @@ Added this section.
 
           if (!mysql_real_connect(mysql_ptr, 
                                   0, 
-                                  temp_str.c_str(),
-                                  "root", 
+                                  database_username.c_str(),
+                                  database_password.c_str(),
                                   0,
                                   0, 
                                   mysql_socket_filename.c_str(), 0))
@@ -1054,7 +1056,7 @@ Added this section.
                  cerr << "In `main':"
                       << endl
                       << "`mysql_real_connect' succeeded.  Database user name == " 
-                      << temp_str << "."
+                      << database_username << "."
                       << endl; 
 
               }   
@@ -1074,7 +1076,7 @@ Added this section.
 
 @<Main@>=
 
-     temp_str = "calchours";
+     string database_name = "calchours";
 
      failed = false;
  
@@ -1082,7 +1084,7 @@ Added this section.
      {
 @q **** (4) @>
 
-          status = mysql_select_db(mysql_ptr, temp_str.c_str());
+          status = mysql_select_db(mysql_ptr, database_name.c_str());
 
           if (status == 0)
           {  
@@ -1093,7 +1095,7 @@ Added this section.
                  cerr << "In `main':  "
                       << "`mysql_select_db succeeded'."
                       << endl
-                      << "Connected to `" << temp_str << "' database successfully."
+                      << "Connected to `" << database_name << "' database successfully."
                       << endl;
 
               }  
@@ -1113,7 +1115,7 @@ Added this section.
              cerr << "ERROR!  In `main':  "  
                   << "`mysql_select_db' failed, returning " << status << "."
                   << endl
-                  << "Failed to connect to `" << temp_str << "' database."
+                  << "Failed to connect to `" << database_name << "' database."
                   << endl;
 
              if (i == 5)

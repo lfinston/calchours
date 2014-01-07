@@ -129,6 +129,10 @@ Added this section.
 \initials{LDF 2013.10.24.}
 Added the |const unsigned short| variables |SHORT_COLUMN_INDEX| 
 and |VACATION_DAYS_INDEX|.
+
+\initials{LDF 2014.01.07.}
+Added the |const unsigned short| variables 
+|DATABASE_USERNAME_INDEX| and |DATABASE_PASSWORD_INDEX|.
 \ENDLOG
 
 @<|process_command_line_options| definition@>=
@@ -145,8 +149,10 @@ and |VACATION_DAYS_INDEX|.
   const unsigned short EMPLOYEE_NAME_INDEX           =  9;
   const unsigned short SHORT_COLUMN_INDEX            = 10;
   const unsigned short DATE_STRING_INDEX             = 11;
-  const unsigned short HELP_INDEX                    = 12;
-  const unsigned short VERSION_INDEX                 = 13;
+  const unsigned short DATABASE_USERNAME_INDEX       = 12;
+  const unsigned short DATABASE_PASSWORD_INDEX       = 13;
+  const unsigned short HELP_INDEX                    = 14;
+  const unsigned short VERSION_INDEX                 = 15;
 
 
 @q *** (3) Option struct.@>
@@ -168,6 +174,8 @@ and |VACATION_DAYS_INDEX|.
     {"employee-name", 1, 0, 0},
     {"short-column", 0, 0, 0},
     {"date-string", 1, 0, 0},
+    {"database-username", 1, 0, 0},
+    {"database-password", 1, 0, 0},
     {"help",  0, 0, 0},
     {"version",  0, 0, 0},
     {0, 0, 0, 0}
@@ -814,6 +822,70 @@ Added this section.
 
         } /* |else if (option_index == DATE_STRING_INDEX)|  */
 
+@q ***** (5) database-username.  @>
+@ \.{database-username}.
+\initials{LDF 2014.01.07.}
+
+\LOG
+\initials{LDF 2014.01.07.}
+Added this section.
+\ENDLOG
+
+@<|process_command_line_options| definition@>=
+
+        else if (option_index == DATABASE_USERNAME_INDEX)
+        {
+@q ****** (6) @>
+
+#if DEBUG_COMPILE
+            if (DEBUG)
+            {
+                cerr << "In `process_command_line_options':  "
+                     << "`option_index' "
+                     << "== `DATABASE_USERNAME_INDEX'."
+                     << endl
+                     << "`optarg' == " << optarg 
+                     << endl;
+
+            }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+            database_username = optarg;
+
+        } /* |else if (option_index == DATABASE_USERNAME_INDEX)|  */
+
+@q ***** (5) database-password.  @>
+@ \.{database-password}.
+\initials{LDF 2014.01.07.}
+
+\LOG
+\initials{LDF 2014.01.07.}
+Added this section.
+\ENDLOG
+
+@<|process_command_line_options| definition@>=
+
+        else if (option_index == DATABASE_PASSWORD_INDEX)
+        {
+@q ****** (6) @>
+
+#if DEBUG_COMPILE
+            if (DEBUG)
+            {
+                cerr << "In `process_command_line_options':  "
+                     << "`option_index' "
+                     << "== `DATABASE_PASSWORD_INDEX'."
+                     << endl
+                     << "`optarg' == " << optarg 
+                     << endl;
+
+            }  /* |if (DEBUG)|  */
+#endif  /* |DEBUG_COMPILE|  */ 
+
+            database_password = optarg;
+
+        } /* |else if (option_index == DATABASE_PASSWORD_INDEX)|  */
+
 @q ***** (5) help.@>
 
 @ \.{help}.
@@ -1221,6 +1293,8 @@ extern float overtime_prev_month;
 extern string employee_name;
 extern bool short_column;
 extern string date_str;
+extern string database_username;
+extern string database_password;
 @<|process_command_line_options| declaration@>@;@/
 @<|process_command_line_options| definition@>@;
 
