@@ -1944,24 +1944,51 @@ Now calling |format_vector|.
 
        result_strm << "\\vskip.5\\baselineskip"
                    << endl 
-                   << "\\leftline{Haben zum " << curr_tm_ptr->tm_mday << "." 
-                   << month << " $=$ " << replace_dec_point(sum_month) << " Std.~$-$ "
-                   << "Sollstunden f{\\\"u}r " << work_day_ctr << " Arbeitstage $=$ "
-                   << replace_dec_point(hours_month_required_subtotal) << " Std.~"
-                   << "$=$ "; 
+                   << "\\halign{#:\\hfil\\quad& \\hfil # Std.& \\space #\\hfil\\cr"
+                   << endl 
+                   << "Haben zum " << curr_tm_ptr->tm_mday << "." 
+                   << month << "& " << replace_dec_point(sum_month) << "\\cr"
+                   << endl 
+                   << "{\\\"U}bertrag aus ";
 
-       if (sum_month - hours_month_required_subtotal < 0)
+       if (month == 1)
+           result_strm << month_name_map[12] << " " << (year - 1);
+       else
+           result_strm << month_name_map[month - 1] << " " << year;
+
+       result_strm << "& " << replace_dec_point(overtime_prev_month);
+
+       if (overtime_prev_month > 0)
+           result_strm << "&$+$";
+       else if (overtime_prev_month < 0)
+           result_strm << "&$-$";
+
+       result_strm << "\\cr"
+                   << endl 
+                   << "Sollstunden f{\\\"u}r " << work_day_ctr << " Arbeitstage& "
+                   << replace_dec_point(hours_month_required_subtotal) << "& $-$\\cr"
+                   << endl
+                   << "\\noalign{\\vskip-.25\\baselineskip}"
+                   << endl 
+                   << "\\omit&\\omit\\hbox to 1cm{"
+                   << "\\hskip-2pt\\vrule height 1pt width 1.25cm\\hss}\\cr"
+                   << endl 
+                   << "Summe& ";
+
+       if (sum_month + overtime_prev_month - hours_month_required_subtotal < 0)
            result_strm << "$-$";
 
-       result_strm << replace_dec_point(fabs(sum_month - hours_month_required_subtotal)) << " "
-                   << "Std.";
+       result_strm << replace_dec_point(fabs(  sum_month 
+                                             + overtime_prev_month
+                                             - hours_month_required_subtotal)) 
+                   << " &";
 
        if (sum_month - hours_month_required_subtotal < 0)
-          result_strm << "~(Minus)";
+          result_strm << "(Minus)";
        else if (sum_month - hours_month_required_subtotal > 0)
-           result_strm << "~(Plus)";
+           result_strm << "(Plus)";
 
-       result_strm << "}"
+       result_strm << "\\cr}"
                    << endl << endl;
 
   }  /* |if|  */
