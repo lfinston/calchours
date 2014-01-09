@@ -1983,9 +1983,9 @@ Now calling |format_vector|.
                                              - hours_month_required_subtotal)) 
                    << " &";
 
-       if (sum_month - hours_month_required_subtotal < 0)
+       if (sum_month + overtime_prev_month - hours_month_required_subtotal < 0)
           result_strm << "(Minus)";
-       else if (sum_month - hours_month_required_subtotal > 0)
+       else if (sum_month + overtime_prev_month - hours_month_required_subtotal > 0)
            result_strm << "(Plus)";
 
        result_strm << "\\cr}"
