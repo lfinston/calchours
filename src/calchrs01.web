@@ -1944,7 +1944,7 @@ Now calling |format_vector|.
 
        result_strm << "\\vskip.5\\baselineskip"
                    << endl 
-                   << "\\halign{#:\\hfil\\quad& \\hfil # Std.& \\space #\\hfil\\cr"
+                   << "\\halign{#:\\hfil\\quad& \\hfil#\\space Std.& \\space #\\hfil\\cr"
                    << endl 
                    << "Haben zum " << curr_tm_ptr->tm_mday << "." 
                    << month << "& " << replace_dec_point(sum_month) << "\\cr"
@@ -1981,7 +1981,7 @@ Now calling |format_vector|.
        result_strm << replace_dec_point(fabs(  sum_month 
                                              + overtime_prev_month
                                              - hours_month_required_subtotal)) 
-                   << " &";
+                   << "&";
 
        if (sum_month + overtime_prev_month - hours_month_required_subtotal < 0)
           result_strm << "(Minus)";
